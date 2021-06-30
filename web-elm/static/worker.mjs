@@ -6,14 +6,14 @@
 // Remark: ES modules are not supported in Web Workers,
 // so you have to process this file with esbuild:
 // esbuild worker.mjs --bundle --preserve-symlinks --outfile=worker.js
-import { Lowrr as LowrrWasm, default as init } from "./pkg/select_ball_wasm.js";
+import { SelectBall as SelectBallWasm, default as init } from "./pkg/select_ball_wasm.js";
 
 // Initialize the wasm module.
-// Let's hope this finishes before someone needs to call a Lowrr method.
-let Lowrr;
+// Let's hope this finishes before someone needs to call a SelectBall method.
+let SelectBall;
 (async function () {
   await init("./pkg/select_ball_wasm_bg.wasm");
-  Lowrr = LowrrWasm.init();
+  SelectBall = SelectBallWasm.init();
 })();
 
 // Global module variable recording if the algorithm was asked to stop.
@@ -46,7 +46,7 @@ async function decode({ id, url }) {
   console.log("Loading into wasm: " + id);
   const response = await fetch(url);
   const arrayBuffer = await response.arrayBuffer();
-  Lowrr.load(id, new Uint8Array(arrayBuffer));
+  SelectBall.load(id, new Uint8Array(arrayBuffer));
 }
 
 // Main algorithm with the parameters passed as arguments.
@@ -55,13 +55,10 @@ async function run(params) {
   // Convert params to what is expected by the Rust code.
   const args = {
     config: {
-      lambda: params.lambda,
-      rho: params.rho,
-      max_iterations: params.maxIterations,
-      threshold: params.convergenceThreshold,
-      sparse_ratio_threshold: params.sparse,
-      levels: params.levels,
+	  sigma: params.sigma,
+      threshold: params.threashold,
       verbosity: params.maxVerbosity,
+	  mask_ray: params.maskRay,
     },
     equalize: 0.5,
     crop: params.crop,
@@ -69,17 +66,17 @@ async function run(params) {
 
   // Run lowrr main registration algorithm.
   stopOrder = false;
-  let motion = await Lowrr.run(args);
+  let motion = await SelectBall.run(args);
 
   // Send back to main thread all cropped images.
-  const image_ids = Lowrr.image_ids();
+  const image_ids = SelectBall.image_ids();
   const imgCount = image_ids.length;
   console.log(`Encoding ${imgCount} cropped aligned images:`);
   for (let i = 0; i < imgCount; i++) {
     await shouldStop("encoding", i);
     const id = image_ids[i];
     console.log("   Encoding ", id, " ...");
-    let croppedImgArrayU8 = Lowrr.cropped_img_file(i);
+    let croppedImgArrayU8 = SelectBall.cropped_img_file(i);
     // Transfer the array buffer back to main thread.
     postMessage(
       {
@@ -105,7 +102,7 @@ async function warpEncode({ imgCount }) {
       break;
     }
     // Warp and encode image in wasm.
-    let imgArrayU8 = Lowrr.register_and_save(i);
+    let imgArrayU8 = SelectBall.register_and_save(i);
     // Transfer the array buffer back to main thread.
     postMessage(
       {

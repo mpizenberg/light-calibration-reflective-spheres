@@ -94,6 +94,9 @@ subscriptions model =
         Config _ ->
             Sub.batch [ resizes WindowResizes, log Log, receiveCroppedImages ReceiveCroppedImages, updateRunStep UpdateRunStep ]
 
+        Registration _ ->
+            Sub.batch [ resizes WindowResizes, log Log, receiveCroppedImages ReceiveCroppedImages, updateRunStep UpdateRunStep, Keyboard.downs KeyDown ]
+
         Logs _ ->
             Sub.batch [ resizes WindowResizes, log Log, receiveCroppedImages ReceiveCroppedImages, updateRunStep UpdateRunStep ]
 
@@ -199,6 +202,9 @@ update msg model =
             ( goTo navMsg model data, Cmd.none )
 
         ( NavigationMsg navMsg, Config data ) ->
+            ( goTo navMsg model data, Cmd.none )
+
+        ( NavigationMsg navMsg, Registration data ) ->
             ( goTo navMsg model data, Cmd.none )
 
         ( NavigationMsg navMsg, Logs data ) ->
@@ -399,6 +405,9 @@ update msg model =
         ( RunAlgorithm params, Config imgs ) ->
             ( { model | state = Logs imgs, registeredImages = Nothing, runStep = StepNotStarted }, run (encodeParams params) )
 
+        ( RunAlgorithm params, Registration imgs ) ->
+            ( { model | state = Logs imgs, registeredImages = Nothing, runStep = StepNotStarted }, run (encodeParams params) )
+
         ( RunAlgorithm params, Logs imgs ) ->
             ( { model | state = Logs imgs, registeredImages = Nothing, runStep = StepNotStarted }, run (encodeParams params) )
 
@@ -565,6 +574,9 @@ goTo msg model data =
         GoToPageConfig ->
             { model | state = Config data }
 
+        GoToPageRegistration ->
+            { model | state = Registration data }
+
         GoToPageLogs ->
             { model | state = Logs data }
 
@@ -572,9 +584,6 @@ goTo msg model data =
 updateParams : ParamsMsg -> Model -> Model
 updateParams msg ({ params, paramsForm } as model) =
     case msg of
-        ToggleEqualize equalize ->
-            { model | params = { params | equalize = equalize } }
-
         ChangeMaxVerbosity str ->
             let
                 updatedField =
@@ -625,6 +634,60 @@ updateParams msg ({ params, paramsForm } as model) =
         ChangeCropBottom str ->
             changeCropSide (CropForm.updateBottom str) model
 
+        ChangeSigma str ->
+            let
+                updatedField =
+                    NumberInput.updateFloat str paramsForm.sigma
+
+                updatedForm =
+                    { paramsForm | sigma = updatedField }
+            in
+            case updatedField.decodedInput of
+                Ok sigma ->
+                    { model
+                        | params = { params | sigma = sigma }
+                        , paramsForm = updatedForm
+                    }
+
+                Err _ ->
+                    { model | paramsForm = updatedForm }
+
+        ChangeMaskRay str ->
+            let
+                updatedField =
+                    NumberInput.updateFloat str paramsForm.maskRay
+
+                updatedForm =
+                    { paramsForm | maskRay = updatedField }
+            in
+            case updatedField.decodedInput of
+                Ok maskRay ->
+                    { model
+                        | params = { params | maskRay = maskRay }
+                        , paramsForm = updatedForm
+                    }
+
+                Err _ ->
+                    { model | paramsForm = updatedForm }
+
+        ChangeThreashold str ->
+            let
+                updatedField =
+                    NumberInput.updateFloat str paramsForm.threashold
+
+                updatedForm =
+                    { paramsForm | threashold = updatedField }
+            in
+            case updatedField.decodedInput of
+                Ok threashold ->
+                    { model
+                        | params = { params | threashold = threashold }
+                        , paramsForm = updatedForm
+                    }
+
+                Err _ ->
+                    { model | paramsForm = updatedForm }
+
 
 changeCropSide : (CropForm.State -> CropForm.State) -> Model -> Model
 changeCropSide updateSide model =
@@ -656,3 +719,12 @@ updateParamsInfo msg toggleInfo =
 
         ToggleInfoMaxVerbosity visible ->
             { toggleInfo | maxVerbosity = visible }
+
+        ToggleInfoSigma visible ->
+            { toggleInfo | sigma = visible }
+
+        ToggleInfoMaskRay visible ->
+            { toggleInfo | maskRay = visible }
+
+        ToggleInfoThreashold visible ->
+            { toggleInfo | threashold = visible }

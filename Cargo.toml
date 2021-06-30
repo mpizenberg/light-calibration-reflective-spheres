@@ -2,7 +2,5 @@
 resolver = "2"
 members = [
   "select-ball-lib",
-  "select-ball-bin",
-  "warp-crop",
   "select-ball-wasm",
 ]
