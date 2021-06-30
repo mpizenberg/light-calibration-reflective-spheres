@@ -82,10 +82,9 @@ initialModel size =
 type alias Parameters =
     { crop : Maybe Crop
     , maxVerbosity : Int
-    , equalize : Bool
-
-    -- , center : { x : Float, y : Float }
-    -- , ray : Float
+    , sigma : Float
+    , maskRay : Float
+    , threashold : Float
     }
 
 
@@ -93,6 +92,10 @@ encodeParams : Parameters -> Value
 encodeParams params =
     Json.Encode.object
         [ ( "crop", encodeMaybe encodeCrop params.crop )
+        , ( "maxVerbosity", Json.Encode.int params.maxVerbosity )
+        , ( "sigma", Json.Encode.float params.sigma )
+        , ( "maskRay", Json.Encode.float params.maskRay )
+        , ( "threashold", Json.Encode.float params.threashold )
         ]
 
 
@@ -104,12 +107,18 @@ encodeMaybe encoder data =
 type alias ParametersForm =
     { crop : CropForm.State
     , maxVerbosity : NumberInput.Field Int NumberInput.IntError
+    , sigma : NumberInput.Field Float NumberInput.FloatError
+    , maskRay : NumberInput.Field Float NumberInput.FloatError
+    , threashold : NumberInput.Field Float NumberInput.FloatError
     }
 
 
 type alias ParametersToggleInfo =
     { crop : Bool
     , maxVerbosity : Bool
+    , sigma : Bool
+    , maskRay : Bool
+    , threashold : Bool
     }
 
 
@@ -117,7 +126,9 @@ defaultParams : Parameters
 defaultParams =
     { crop = Nothing
     , maxVerbosity = 3
-    , equalize = True
+    , sigma = 1.2
+    , maskRay = 0.8
+    , threashold = 0.7
     }
 
 
@@ -134,6 +145,15 @@ defaultParamsForm =
     , maxVerbosity =
         { anyInt | min = Just 0, max = Just 4 }
             |> NumberInput.setDefaultIntValue defaultParams.maxVerbosity
+    , sigma =
+        { anyFloat | min = Just 0.01, max = Nothing }
+            |> NumberInput.setDefaultFloatValue defaultParams.sigma
+    , maskRay =
+        { anyFloat | min = Just 0.0, max = Just 1.0 }
+            |> NumberInput.setDefaultFloatValue defaultParams.maskRay
+    , threashold =
+        { anyFloat | min = Just 0.0, max = Just 1.0 }
+            |> NumberInput.setDefaultFloatValue defaultParams.threashold
     }
 
 
@@ -141,24 +161,30 @@ defaultParamsInfo : ParametersToggleInfo
 defaultParamsInfo =
     { crop = False
     , maxVerbosity = False
+    , sigma = False
+    , maskRay = False
+    , threashold = False
     }
 
 
 type ParamsMsg
-    = ToggleEqualize Bool
-      -- | ...
-    | ChangeMaxVerbosity String
+    = ChangeMaxVerbosity String
     | ToggleCrop Bool
     | ChangeCropLeft String
     | ChangeCropTop String
     | ChangeCropRight String
     | ChangeCropBottom String
+    | ChangeSigma String
+    | ChangeMaskRay String
+    | ChangeThreashold String
 
 
 type ParamsInfoMsg
     = ToggleInfoCrop Bool
-      -- | ...
     | ToggleInfoMaxVerbosity Bool
+    | ToggleInfoSigma Bool
+    | ToggleInfoMaskRay Bool
+    | ToggleInfoThreashold Bool
 
 
 
@@ -182,6 +208,7 @@ type State
     | Loading { names : Set String, loaded : Dict String Image }
     | ViewImgs { images : Pivot Image }
     | Config { images : Pivot Image }
+    | Registration { images : Pivot Image }
     | Logs { images : Pivot Image }
 
 
@@ -268,10 +295,12 @@ type ViewImgMsg
 type NavigationMsg
     = GoToPageImages
     | GoToPageConfig
+    | GoToPageRegistration
     | GoToPageLogs
 
 
 type PageHeader
     = PageImages
     | PageConfig
+    | PageRegistration
     | PageLogs

@@ -55,6 +55,9 @@ viewElmUI model =
         Config { images } ->
             viewConfig model
 
+        Registration { images } ->
+            viewRegistration model
+
         Logs { images } ->
             viewLogs model
 
@@ -135,6 +138,17 @@ pageHeaderElement current page =
                     else
                         Just (NavigationMsg GoToPageConfig)
                 , label = Element.text "Config"
+                }
+
+        PageRegistration ->
+            Element.Input.button attributes
+                { onPress =
+                    if current then
+                        Nothing
+
+                    else
+                        Just (NavigationMsg GoToPageRegistration)
+                , label = Element.text "Registration"
                 }
 
         PageLogs ->
@@ -291,6 +305,7 @@ viewLogs ({ autoscroll, verbosity, logs } as model) =
         [ headerBar
             [ ( PageImages, False )
             , ( PageConfig, False )
+            , ( PageRegistration, False )
             , ( PageLogs, True )
             ]
         , runProgressBar model
@@ -437,6 +452,7 @@ viewConfig ({ params, paramsForm, paramsInfo } as model) =
         [ headerBar
             [ ( PageImages, False )
             , ( PageConfig, True )
+            , ( PageRegistration, False )
             , ( PageLogs, False )
             ]
         , runProgressBar model
@@ -488,8 +504,154 @@ viewConfig ({ params, paramsForm, paramsInfo } as model) =
                     , intInput paramsForm.maxVerbosity (ParamsMsg << ChangeMaxVerbosity) "Maximum verbosity"
                     , displayIntErrors paramsForm.maxVerbosity.decodedInput
                     ]
+
+                -- Sigma variance
+                , Element.column [ spacing 10 ]
+                    [ Element.row [ spacing 10 ]
+                        [ Element.text "Sigma variance of gaussian filter:"
+                        , Element.Input.checkbox []
+                            { onChange = ParamsInfoMsg << ToggleInfoSigma
+                            , icon = infoIcon
+                            , checked = paramsInfo.sigma
+                            , label = Element.Input.labelHidden "Show detail info about the sigma parameter"
+                            }
+                        ]
+                    , moreInfo paramsInfo.sigma "Sigma is the variance of the gaussian filter used to blur the ball. The grater the blurrier."
+                    , Element.text ("(default to " ++ String.fromFloat defaultParams.sigma ++ ")")
+                    , floatInput paramsForm.sigma (ParamsMsg << ChangeSigma) "Sigma"
+                    , displayFloatErrors paramsForm.sigma.decodedInput
+                    ]
+
+                -- Mask ray
+                , Element.column [ spacing 10 ]
+                    [ Element.row [ spacing 10 ]
+                        [ Element.text "Circular ray of the mask for lobe detection"
+                        , Element.Input.checkbox []
+                            { onChange = ParamsInfoMsg << ToggleInfoSigma
+                            , icon = infoIcon
+                            , checked = paramsInfo.maskRay
+                            , label = Element.Input.labelHidden "Show detail info about the mask ray"
+                            }
+                        ]
+                    , moreInfo paramsInfo.sigma "Before it appears to the screen, the ball is masked with a rectangular black layer, with a hole of a chosen ray. The smaller the ray, the greater the chance to avoid double specular lobes, but also the greater the chance to miss the OG lobe"
+                    , Element.text ("(default to " ++ String.fromFloat defaultParams.maskRay ++ " < 1.0)")
+                    , floatInput paramsForm.maskRay (ParamsMsg << ChangeMaskRay) "maskRay"
+                    , displayFloatErrors paramsForm.maskRay.decodedInput
+                    ]
+
+                -- Gauss threashold
+                , Element.column [ spacing 10 ]
+                    [ Element.row [ spacing 10 ]
+                        [ Element.text "Threashold for specular luminosity:"
+                        , Element.Input.checkbox []
+                            { onChange = ParamsInfoMsg << ToggleInfoThreashold
+                            , icon = infoIcon
+                            , checked = paramsInfo.threashold
+                            , label = Element.Input.labelHidden "Show detail info about the threashold"
+                            }
+                        ]
+                    , moreInfo paramsInfo.threashold "The threashold is the limit value of gray level above which we consider that a pixel belongs to the specular globe."
+                    , Element.text ("(default to " ++ String.fromFloat defaultParams.threashold ++ " < 1.0)")
+                    , floatInput paramsForm.threashold (ParamsMsg << ChangeThreashold) "Threashold"
+                    , displayFloatErrors paramsForm.threashold.decodedInput
+                    ]
                 ]
             ]
+        ]
+
+
+
+-- Registration view
+
+
+viewRegistration : Model -> Element Msg
+viewRegistration ({ registeredImages, registeredViewer } as model) =
+    Element.column [ width fill, height fill ]
+        [ headerBar
+            [ ( PageImages, False )
+            , ( PageConfig, False )
+            , ( PageRegistration, True )
+            , ( PageLogs, False )
+            ]
+        , runProgressBar model
+        , Element.html <|
+            Html.node "style"
+                []
+                [ Html.text ".pixelated { image-rendering: pixelated; image-rendering: crisp-edges; }" ]
+        , case registeredImages of
+            Nothing ->
+                Element.el [ centerX, centerY ]
+                    (Element.text "Registration not done yet")
+
+            Just images ->
+                let
+                    img =
+                        Pivot.getC images
+
+                    clickButton alignment msg title icon =
+                        Element.Input.button
+                            [ padding 6
+                            , alignment
+                            , Element.Background.color (Element.rgba255 255 255 255 0.8)
+                            , Element.Font.color Style.black
+                            , Element.htmlAttribute <| Html.Attributes.style "box-shadow" "none"
+                            , Element.htmlAttribute <| Html.Attributes.title title
+                            ]
+                            { onPress = Just msg
+                            , label = icon 32
+                            }
+
+                    buttonsRow =
+                        Element.row [ centerX ]
+                            [ clickButton centerX (ZoomMsg (ZoomFit img)) "Fit zoom to image" Icon.zoomFit
+                            , clickButton centerX (ZoomMsg ZoomOut) "Zoom out" Icon.zoomOut
+                            , clickButton centerX (ZoomMsg ZoomIn) "Zoom in" Icon.zoomIn
+                            ]
+
+                    ( viewerWidth, viewerHeight ) =
+                        registeredViewer.size
+
+                    clearCanvas : Canvas.Renderable
+                    clearCanvas =
+                        Canvas.clear ( 0, 0 ) viewerWidth viewerHeight
+
+                    renderedImage : Canvas.Renderable
+                    renderedImage =
+                        Canvas.texture
+                            [ Viewer.Canvas.transform registeredViewer
+                            , Canvas.Settings.Advanced.imageSmoothing False
+                            ]
+                            ( 0, 0 )
+                            img.texture
+
+                    canvasViewer =
+                        Canvas.toHtml ( round viewerWidth, round viewerHeight )
+                            [ Html.Attributes.id "theCanvas"
+                            , Html.Attributes.style "display" "block"
+                            , Wheel.onWheel (zoomWheelMsg registeredViewer)
+                            , msgOn "pointerdown" (Json.Decode.map (PointerMsg << PointerDownRaw) Json.Decode.value)
+                            , Pointer.onUp (\e -> PointerMsg (PointerUp e.pointer.offsetPos))
+                            , Html.Attributes.style "touch-action" "none"
+                            , Html.Events.preventDefaultOn "pointermove" <|
+                                Json.Decode.map (\coords -> ( PointerMsg (PointerMove coords), True )) <|
+                                    Json.Decode.map2 Tuple.pair
+                                        (Json.Decode.field "clientX" Json.Decode.float)
+                                        (Json.Decode.field "clientY" Json.Decode.float)
+                            ]
+                            [ clearCanvas, renderedImage ]
+                in
+                Element.el
+                    [ Element.inFront buttonsRow
+                    , Element.inFront
+                        (Element.row [ alignBottom, width fill ]
+                            [ clickButton alignLeft ClickPreviousImage "Previous image" Icon.arrowLeftCircle
+                            , clickButton alignRight ClickNextImage "Next image" Icon.arrowRightCircle
+                            ]
+                        )
+                    , Element.clip
+                    , height fill
+                    ]
+                    (Element.html canvasViewer)
         ]
 
 
@@ -952,6 +1114,7 @@ viewImgs ({ pointerMode, bboxDrawn, viewer } as model) images =
         [ headerBar
             [ ( PageImages, True )
             , ( PageConfig, False )
+            , ( PageRegistration, False )
             , ( PageLogs, False )
             ]
         , runProgressBar model
