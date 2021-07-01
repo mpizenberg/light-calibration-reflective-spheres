@@ -1,20 +1,16 @@
 // SPDX-License-Identifier: MPL-2.0
 
-use image::{DynamicImage, GenericImageView};
+use image::DynamicImage;
 use image::{ImageBuffer, Pixel};
-use nalgebra::{DMatrix, Vector6};
 use serde::Deserialize;
 use std::cell::RefCell;
 use std::cmp;
-use std::fmt;
 use std::io::Cursor;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 
-use select_ball::img::crop::{crop, recover_original_motion, Crop};
-use select_ball::img::registration::{self, CanRegister};
-use select_ball::interop::{IntoDMatrix, ToImage};
-use select_ball::utils::CanEqualize;
+use select_ball::img::crop::Crop;
+use select_ball::img::registration::{self};
 
 #[macro_use]
 mod utils; // define console_log! macro
@@ -72,20 +68,7 @@ struct SelectBallInner {
     dataset: Vec<DynamicImage>,
     crop_registered: Vec<DynamicImage>,
     lobes_center: Vec<(u32, u32)>,
-    motion_vec: Option<Vec<Vector6<f32>>>,
 }
-
-// enum Dataset {
-//     Empty,
-//     // GrayImages(Vec<DMatrix<u8>>),
-//     // GrayImagesU16(Vec<DMatrix<u16>>),
-//     // RgbImages(Vec<DMatrix<(u8, u8, u8)>>),
-//     // RgbImagesU16(Vec<DMatrix<(u16, u16, u16)>>),
-//     GrayImages(Vec<DynamicImage>),
-//     GrayImagesU16(Vec<DynamicImage>),
-//     RgbImages(Vec<DynamicImage>),
-//     RgbImagesU16(Vec<DynamicImage>),
-// }
 
 #[wasm_bindgen]
 #[derive(Deserialize)]
@@ -106,7 +89,6 @@ impl SelectBallInner {
             dataset: Vec::new(),
             crop_registered: Vec::new(),
             lobes_center: Vec::new(),
-            motion_vec: None,
         }
     }
 
@@ -120,58 +102,6 @@ impl SelectBallInner {
         let dyn_img = reader.decode().map_err(utils::report_error)?;
 
         match (&dyn_img, &mut self.dataset) {
-            // Loading the first image (empty dataset)
-            // (DynamicImage::ImageLuma8(_), Dataset::Empty) => {
-            //     log::info!("Images are of type Gray u8");
-            //     // self.dataset = Dataset::GrayImages(vec![dyn_img.into_dmatrix()]);
-            //     self.dataset = Dataset::GrayImages(vec![dyn_img]);
-            //     self.image_ids = vec![id];
-            // }
-            // // Loading of subsequent images
-            // (DynamicImage::ImageLuma8(_), Dataset::GrayImages(imgs)) => {
-            //     // imgs.push(dyn_img.into_dmatrix());
-            //     imgs.push(dyn_img);
-            //     self.image_ids.push(id);
-            // }
-            // // Loading the first image (empty dataset)
-            // (DynamicImage::ImageLuma16(_), Dataset::Empty) => {
-            //     log::info!("Images are of type Gray u16");
-            //     // self.dataset = Dataset::GrayImagesU16(vec![dyn_img.into_dmatrix()]);
-            //     self.dataset = Dataset::GrayImagesU16(vec![dyn_img]);
-            //     self.image_ids = vec![id];
-            // }
-            // // Loading of subsequent images
-            // (DynamicImage::ImageLuma16(_), Dataset::GrayImagesU16(imgs)) => {
-            //     // imgs.push(dyn_img.into_dmatrix());
-            //     imgs.push(dyn_img);
-            //     self.image_ids.push(id);
-            // }
-            // // Loading the first image (empty dataset)
-            // (DynamicImage::ImageRgb8(_), Dataset::Empty) => {
-            //     log::info!("Images are of type RGB (u8, u8, u8)");
-            //     // self.dataset = Dataset::RgbImages(vec![dyn_img.into_dmatrix()]);
-            //     self.dataset = Dataset::RgbImages(vec![dyn_img]);
-            //     self.image_ids = vec![id];
-            // }
-            // // Loading of subsequent images
-            // (DynamicImage::ImageRgb8(_), Dataset::RgbImages(imgs)) => {
-            //     // imgs.push(dyn_img.into_dmatrix());
-            //     imgs.push(dyn_img);
-            //     self.image_ids.push(id);
-            // }
-            // // Loading the first image (empty dataset)
-            // (DynamicImage::ImageRgb16(_), Dataset::Empty) => {
-            //     log::info!("Images are of type RGB (u16, u16, u16)");
-            //     // self.dataset = Dataset::RgbImagesU16(vec![dyn_img.into_dmatrix()]);
-            //     self.dataset = Dataset::RgbImagesU16(vec![dyn_img]);
-            //     self.image_ids = vec![id];
-            // }
-            // // Loading of subsequent images
-            // (DynamicImage::ImageRgb16(_), Dataset::RgbImagesU16(imgs)) => {
-            //     // imgs.push(dyn_img.into_dmatrix());
-            //     imgs.push(dyn_img);
-            //     self.image_ids.push(id);
-            // }
             (DynamicImage::ImageBgr8(_), _) => return Err("BGR order not supported".into()),
             (DynamicImage::ImageBgra8(_), _) => return Err("BGR order not supported".into()),
             (DynamicImage::ImageLumaA8(_), _) => return Err("Alpha channel not supported".into()),
@@ -182,7 +112,7 @@ impl SelectBallInner {
                 log::info!("New images treated");
                 self.dataset.push(dyn_img);
                 self.image_ids.push(id);
-            } // _ => return Err("Images are not all of the same type".into()),
+            }
         }
 
         Ok(())
@@ -191,7 +121,6 @@ impl SelectBallInner {
     // Run the main select_ball registration algorithm.
     //                                                 Vec<f32>
     async fn run(&mut self, params: JsValue) -> Result<JsValue, JsValue> {
-        self.motion_vec = None;
         self.crop_registered.clear();
         let args: Args = params.into_serde().unwrap();
         utils::WasmLogger::setup(utils::verbosity_filter(args.config.verbosity));
@@ -203,64 +132,6 @@ impl SelectBallInner {
             self.lobes_center = tmp.0;
             self.crop_registered = tmp.1;
         }
-        // Use the algorithm corresponding to the type of data.
-        // let motion_vec = match &self.dataset {
-        //     Dataset::Empty => 0,
-        //     Dataset::GrayImages(gray_imgs) => {
-        //         let cropped_eq_imgs = crop_and_register(&args, gray_imgs.clone(), 40);
-        //         log::info!("Applying registration on cropped images ...");
-        //         // self.crop_registered = registration::reproject_may_stop::<u8, f32, u8, _>(
-        //         //     &cropped_eq_imgs,
-        //         //     &motion_vec_crop,
-        //         //     should_stop_bool,
-        //         // )
-        //         // .await
-        //         // .map_err(utils::report_error)?;
-        //         0
-        //     }
-        //     Dataset::GrayImagesU16(gray_imgs) => {
-        //         let cropped_eq_imgs = crop_and_register(&args, gray_imgs.clone(), 10 * 256);
-        //         log::info!("Applying registration on cropped images ...");
-        //         // let cropped_u8: Vec<_> = cropped_eq_imgs.into_iter().map(into_gray_u8).collect();
-        //         // self.crop_registered = registration::reproject_may_stop::<u8, f32, u8, _>(
-        //         //     &cropped_u8,
-        //         //     &motion_vec_crop,
-        //         //     should_stop_bool,
-        //         // )
-        //         // .await
-        //         // .map_err(utils::report_error)?;
-        //         0
-        //     }
-        //     Dataset::RgbImages(imgs) => {
-        //         let cropped_eq_imgs = crop_and_register(&args, imgs.clone(), 40);
-        //         log::info!("Applying registration on cropped images ...");
-        //         // self.crop_registered = registration::reproject_may_stop::<u8, f32, u8, _>(
-        //         //     &cropped_eq_imgs,
-        //         //     &motion_vec_crop,
-        //         //     should_stop_bool,
-        //         // )
-        //         // .await
-        //         // .map_err(utils::report_error)?;
-        //         0
-        //     }
-        //     Dataset::RgbImagesU16(imgs) => {
-        //         let cropped_eq_imgs = crop_and_register(&args, imgs.clone(), 10 * 256);
-        //         log::info!("Applying registration on cropped images ...");
-        //         // let cropped_u8: Vec<_> = cropped_eq_imgs.into_iter().map(into_gray_u8).collect();
-        //         // self.crop_registered = registration::reproject_may_stop::<u8, f32, u8, _>(
-        //         //     &cropped_u8,
-        //         //     &motion_vec_crop,
-        //         //     should_stop_bool,
-        //         // )
-        //         // .await
-        //         // .map_err(utils::report_error)?;
-        //         0
-        //     }
-        // };
-
-        // let flat_motion_vec: Vec<f32> = motion_vec.iter().flatten().cloned().collect();
-        // self.motion_vec = Some(motion_vec);
-        // JsValue::from_serde(&flat_motion_vec).map_err(utils::report_error)
         let false_vector: Vec<f32> = Vec::new();
         return JsValue::from_serde(&false_vector).map_err(utils::report_error);
     }
@@ -286,34 +157,6 @@ impl SelectBallInner {
     // Register and save that image.
     pub fn register_and_save(&self, i: usize) -> Result<Box<[u8]>, JsValue> {
         log::info!("Registering image {}", i);
-        // match (&self.motion_vec, &self.dataset) {
-        //     (_, Dataset::Empty) => {
-        //         Err(anyhow!("Images not loaded yet")).map_err(utils::report_error)
-        //     }
-        //     (None, _) => {
-        //         Err(anyhow!("Registration parameters unknown")).map_err(utils::report_error)
-        //     }
-        //     (Some(all_motion), Dataset::GrayImages(images)) => {
-        //         let registered: DMatrix<u8> =
-        //             select_ball::img::registration::warp(&images[i], &all_motion[i]);
-        //         encode(i, &registered).map_err(utils::report_error)
-        //     }
-        //     (Some(all_motion), Dataset::GrayImagesU16(images)) => {
-        //         let registered: DMatrix<u16> =
-        //             select_ball::img::registration::warp(&images[i], &all_motion[i]);
-        //         encode(i, &registered).map_err(utils::report_error)
-        //     }
-        //     (Some(all_motion), Dataset::RgbImages(images)) => {
-        //         let registered: DMatrix<(u8, u8, u8)> =
-        //             select_ball::img::registration::warp(&images[i], &all_motion[i]);
-        //         encode(i, &registered).map_err(utils::report_error)
-        //     }
-        //     (Some(all_motion), Dataset::RgbImagesU16(images)) => {
-        //         let registered: DMatrix<(u16, u16, u16)> =
-        //             select_ball::img::registration::warp(&images[i], &all_motion[i]);
-        //         encode(i, &registered).map_err(utils::report_error)
-        //     }
-        // }
         return encode(i, &self.dataset[i]).map_err(utils::report_error);
     }
 }
@@ -425,19 +268,19 @@ async fn crop_and_register(
     (max_coords, final_imgs)
 }
 
-async fn should_stop_bool(step: &str, progress: Option<u32>) -> bool {
-    let js_bool = should_stop(step, progress).await;
-    js_bool.as_bool().unwrap()
-}
-
-fn original_motion(crop: Option<Crop>, motion_vec_crop: Vec<Vector6<f32>>) -> Vec<Vector6<f32>> {
-    // Recover motion parameters in the frame of the full image from the one in the cropped frame.
-    match crop {
-        None => motion_vec_crop,
-        Some(frame) => recover_original_motion(frame, &motion_vec_crop),
-    }
-}
-
-fn into_gray_u8(m: DMatrix<u16>) -> DMatrix<u8> {
-    m.map(|x| (x / 256) as u8)
-}
+// async fn should_stop_bool(step: &str, progress: Option<u32>) -> bool {
+//     let js_bool = should_stop(step, progress).await;
+//     js_bool.as_bool().unwrap()
+// }
+//
+// fn original_motion(crop: Option<Crop>, motion_vec_crop: Vec<Vector6<f32>>) -> Vec<Vector6<f32>> {
+//     // Recover motion parameters in the frame of the full image from the one in the cropped frame.
+//     match crop {
+//         None => motion_vec_crop,
+//         Some(frame) => recover_original_motion(frame, &motion_vec_crop),
+//     }
+// }
+//
+// fn into_gray_u8(m: DMatrix<u16>) -> DMatrix<u8> {
+//     m.map(|x| (x / 256) as u8)
+// }
