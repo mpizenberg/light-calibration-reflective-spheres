@@ -25,11 +25,6 @@ extern "C" {
     fn appLog(level: u32, content: &str);
 }
 
-// Macro console_log! similar to println!
-macro_rules! console_log {
-    ($($t:tt)*) => (crate::utils::log(&format_args!($($t)*).to_string()))
-}
-
 // Log implementation
 
 pub struct WasmLogger;
