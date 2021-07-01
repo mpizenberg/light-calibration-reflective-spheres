@@ -565,7 +565,7 @@ viewConfig ({ params, paramsForm, paramsInfo } as model) =
 
 
 viewRegistration : Model -> Element Msg
-viewRegistration ({ registeredImages, registeredViewer } as model) =
+viewRegistration ({ registeredImages, registeredViewer, registeredCenters } as model) =
     Element.column [ width fill, height fill ]
         [ headerBar
             [ ( PageImages, False )
@@ -638,7 +638,30 @@ viewRegistration ({ registeredImages, registeredViewer } as model) =
                                         (Json.Decode.field "clientX" Json.Decode.float)
                                         (Json.Decode.field "clientY" Json.Decode.float)
                             ]
-                            [ clearCanvas, renderedImage ]
+                            [ clearCanvas
+                            , renderedImage
+                            , let
+                                c : { x : Float, y : Float }
+                                c =
+                                    case registeredCenters of
+                                        Nothing ->
+                                            { x = 0.0, y = 0.0 }
+
+                                        Just centersPivot ->
+                                            Pivot.getC centersPivot
+                                                |> (\p -> { x = toFloat p.x, y = toFloat p.y })
+                              in
+                              Canvas.shapes
+                                [ Canvas.Settings.stroke (Color.rgba 1 0 0 0.7)
+                                , Canvas.Settings.Line.lineWidth (registeredViewer.scale * 2)
+                                , Viewer.Canvas.transform registeredViewer
+                                ]
+                                [ Canvas.path ( c.x, 0.0 )
+                                    [ Canvas.lineTo ( c.x, viewerHeight ) ]
+                                , Canvas.path ( 0, c.y )
+                                    [ Canvas.lineTo ( viewerWidth, c.y ) ]
+                                ]
+                            ]
                 in
                 Element.el
                     [ Element.inFront buttonsRow

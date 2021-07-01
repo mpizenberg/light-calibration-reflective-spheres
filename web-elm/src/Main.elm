@@ -62,6 +62,9 @@ port updateRunStep : ({ step : String, progress : Maybe Int } -> msg) -> Sub msg
 port receiveCroppedImages : (List { id : String, img : Value } -> msg) -> Sub msg
 
 
+port receiveCenters : (List { x : Int, y : Int } -> msg) -> Sub msg
+
+
 main : Program Device.Size Model Msg
 main =
     Browser.element
@@ -89,16 +92,16 @@ subscriptions model =
             Sub.batch [ resizes WindowResizes, log Log, imageDecoded ImageDecoded ]
 
         ViewImgs _ ->
-            Sub.batch [ resizes WindowResizes, log Log, receiveCroppedImages ReceiveCroppedImages, updateRunStep UpdateRunStep, Keyboard.downs KeyDown ]
+            Sub.batch [ resizes WindowResizes, log Log, receiveCroppedImages ReceiveCroppedImages, updateRunStep UpdateRunStep, receiveCenters ReceiveCenters, Keyboard.downs KeyDown ]
 
         Config _ ->
-            Sub.batch [ resizes WindowResizes, log Log, receiveCroppedImages ReceiveCroppedImages, updateRunStep UpdateRunStep ]
+            Sub.batch [ resizes WindowResizes, log Log, receiveCroppedImages ReceiveCroppedImages, receiveCenters ReceiveCenters, updateRunStep UpdateRunStep ]
 
         Registration _ ->
-            Sub.batch [ resizes WindowResizes, log Log, receiveCroppedImages ReceiveCroppedImages, updateRunStep UpdateRunStep, Keyboard.downs KeyDown ]
+            Sub.batch [ resizes WindowResizes, log Log, receiveCroppedImages ReceiveCroppedImages, receiveCenters ReceiveCenters, updateRunStep UpdateRunStep, Keyboard.downs KeyDown ]
 
         Logs _ ->
-            Sub.batch [ resizes WindowResizes, log Log, receiveCroppedImages ReceiveCroppedImages, updateRunStep UpdateRunStep ]
+            Sub.batch [ resizes WindowResizes, log Log, receiveCroppedImages ReceiveCroppedImages, receiveCenters ReceiveCenters, updateRunStep UpdateRunStep ]
 
 
 
@@ -212,6 +215,9 @@ update msg model =
 
         ( ZoomMsg zoomMsg, ViewImgs _ ) ->
             ( { model | viewer = zoomViewer zoomMsg model.viewer }, Cmd.none )
+
+        ( ZoomMsg zoomMsg, Registration _ ) ->
+            ( { model | registeredViewer = zoomViewer zoomMsg model.registeredViewer }, Cmd.none )
 
         ( PointerMsg pointerMsg, ViewImgs { images } ) ->
             case ( pointerMsg, model.pointerMode ) of
@@ -396,8 +402,24 @@ update msg model =
         ( ClickPreviousImage, ViewImgs { images } ) ->
             ( { model | state = ViewImgs { images = goToPreviousImage images } }, Cmd.none )
 
+        ( ClickPreviousImage, Registration _ ) ->
+            ( { model
+                | registeredImages = Maybe.map goToPreviousImage model.registeredImages
+                , registeredCenters = Maybe.map goToPreviousCenter model.registeredCenters
+              }
+            , Cmd.none
+            )
+
         ( ClickNextImage, ViewImgs { images } ) ->
             ( { model | state = ViewImgs { images = goToNextImage images } }, Cmd.none )
+
+        ( ClickNextImage, Registration _ ) ->
+            ( { model
+                | registeredImages = Maybe.map goToNextImage model.registeredImages
+                , registeredCenters = Maybe.map goToNextCenter model.registeredCenters
+              }
+            , Cmd.none
+            )
 
         ( RunAlgorithm params, ViewImgs imgs ) ->
             ( { model | state = Logs imgs, registeredImages = Nothing, runStep = StepNotStarted }, run (encodeParams params) )
@@ -460,6 +482,18 @@ update msg model =
                     , Cmd.none
                     )
 
+        ( ReceiveCenters centers, _ ) ->
+            case centers of
+                [] ->
+                    ( model, Cmd.none )
+
+                firstCenter :: otherCenters ->
+                    ( { model
+                        | registeredCenters = Just (Pivot.fromCons firstCenter otherCenters)
+                      }
+                    , Cmd.none
+                    )
+
         ( SaveRegisteredImages, _ ) ->
             ( model, saveRegisteredImages model.imagesCount )
 
@@ -500,9 +534,19 @@ goToPreviousImage images =
     Maybe.withDefault (Pivot.goToEnd images) (Pivot.goL images)
 
 
+goToPreviousCenter : Pivot { x : Int, y : Int } -> Pivot { x : Int, y : Int }
+goToPreviousCenter centers =
+    Maybe.withDefault (Pivot.goToEnd centers) (Pivot.goL centers)
+
+
 goToNextImage : Pivot Image -> Pivot Image
 goToNextImage images =
     Maybe.withDefault (Pivot.goToStart images) (Pivot.goR images)
+
+
+goToNextCenter : Pivot { x : Int, y : Int } -> Pivot { x : Int, y : Int }
+goToNextCenter centers =
+    Maybe.withDefault (Pivot.goToStart centers) (Pivot.goR centers)
 
 
 toBBox : Crop -> BBox

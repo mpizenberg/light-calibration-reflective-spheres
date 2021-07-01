@@ -13,6 +13,7 @@ export function activatePorts(app, containerSize) {
   // Global variable holding image ids
   let croppedImages = [];
   let registeredImages = [];
+  let centers = [];
 
   // Listen to worker messages.
   worker.onmessage = async function (event) {
@@ -24,14 +25,16 @@ export function activatePorts(app, containerSize) {
       app.ports.imageDecoded.send({ id: image.id, img });
     } else if (event.data.type == "cropped-image") {
       // Add the cropped image to the list of cropped images.
-      const { id, arrayBuffer, imgCount } = event.data.data;
+      const { id, arrayBuffer, imgCount, lobe_center } = event.data.data;
       console.log("Received cropped image in main:", id);
       const url = URL.createObjectURL(new Blob([arrayBuffer]));
       const decodedCropped = await utils.decodeImage(url);
       croppedImages.push({ id, img: decodedCropped });
+	  centers.push(lobe_center);
       if (croppedImages.length == imgCount) {
         console.log(`Registration done, there are ${imgCount} cropped images.`);
         app.ports.receiveCroppedImages.send(croppedImages);
+		app.ports.receiveCenters.send(centers);
       }
     } else if (event.data.type == "registered-image") {
       // Add the registered image to the list of registered images.

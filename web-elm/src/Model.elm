@@ -47,6 +47,7 @@ type alias Model =
     , pointerMode : PointerMode
     , bboxDrawn : Maybe BBox
     , registeredImages : Maybe (Pivot Image)
+    , registeredCenters : Maybe (Pivot { x : Int, y : Int })
     , logs : List { lvl : Int, content : String }
     , verbosity : Int
     , autoscroll : Bool
@@ -67,6 +68,7 @@ initialModel size =
     , pointerMode = WaitingMove
     , bboxDrawn = Nothing
     , registeredImages = Nothing
+    , registeredCenters = Nothing
     , logs = []
     , verbosity = 2
     , autoscroll = True
@@ -259,6 +261,7 @@ type Msg
     | ScrollLogsToEnd
     | ToggleAutoScroll Bool
     | ReceiveCroppedImages (List { id : String, img : Value })
+    | ReceiveCenters (List { x : Int, y : Int })
     | SaveRegisteredImages
 
 
