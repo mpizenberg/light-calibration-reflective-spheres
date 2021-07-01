@@ -50,6 +50,9 @@ impl SelectBall {
     pub fn cropped_img_file(&self, i: usize) -> Result<Box<[u8]>, JsValue> {
         self.0.borrow().cropped_img_file(i)
     }
+    pub fn lobes(&self, i: usize) -> js_sys::Array {
+        self.0.borrow().lobes(i)
+    }
     pub fn register_and_save(&self, i: usize) -> Result<Box<[u8]>, JsValue> {
         self.0.borrow().register_and_save(i)
     }
@@ -68,6 +71,7 @@ struct SelectBallInner {
     image_ids: Vec<String>,
     dataset: Vec<DynamicImage>,
     crop_registered: Vec<DynamicImage>,
+    lobes_center: Vec<(u32, u32)>,
     motion_vec: Option<Vec<Vector6<f32>>>,
 }
 
@@ -101,6 +105,7 @@ impl SelectBallInner {
             image_ids: Vec::new(),
             dataset: Vec::new(),
             crop_registered: Vec::new(),
+            lobes_center: Vec::new(),
             motion_vec: None,
         }
     }
@@ -194,7 +199,9 @@ impl SelectBallInner {
         if self.dataset.is_empty() {
             self.crop_registered = Vec::new();
         } else {
-            self.crop_registered = crop_and_register(&args, &self.dataset).await
+            let tmp = crop_and_register(&args, &self.dataset).await;
+            self.lobes_center = tmp.0;
+            self.crop_registered = tmp.1;
         }
         // Use the algorithm corresponding to the type of data.
         // let motion_vec = match &self.dataset {
@@ -268,6 +275,14 @@ impl SelectBallInner {
         encode(i, &self.crop_registered[i]).map_err(utils::report_error)
     }
 
+    // Retrieve the centers of the ith image lobes.
+    //                                      (u32, u32)
+    pub fn lobes(&self, i: usize) -> js_sys::Array {
+        //JsValue::from_serde(&self.lobes_center[i]).map_err(utils::report_error)
+        let c: (u32, u32) = self.lobes_center[i];
+        (vec![c.0, c.1]).into_iter().map(JsValue::from).collect()
+    }
+
     // Register and save that image.
     pub fn register_and_save(&self, i: usize) -> Result<Box<[u8]>, JsValue> {
         log::info!("Registering image {}", i);
@@ -313,13 +328,17 @@ fn encode(i: usize, mat: &DynamicImage) -> anyhow::Result<Box<[u8]>> {
 }
 
 #[allow(clippy::type_complexity)]
-async fn crop_and_register(args: &Args, gray_imgs: &[DynamicImage]) -> Vec<DynamicImage> {
+async fn crop_and_register(
+    args: &Args,
+    og_imgs: &[DynamicImage],
+) -> (Vec<(u32, u32)>, Vec<DynamicImage>) {
     // Extract the cropped area from the images.
-    match args.crop {
-        None => gray_imgs.iter().cloned().collect(),
+    let mut max_coords: Vec<(u32, u32)> = Vec::new();
+    let final_imgs: Vec<DynamicImage> = match args.crop {
+        None => og_imgs.iter().cloned().collect(),
         Some(frame) => {
             log::info!("Cropping images ...");
-            gray_imgs
+            og_imgs
                 .iter()
                 .map(|im| {
                     log::info!("Compute ray...");
@@ -357,6 +376,7 @@ async fn crop_and_register(args: &Args, gray_imgs: &[DynamicImage]) -> Vec<Dynam
                     log::info!("Cropped OK");
                     let image_blured = cropped.blur(args.config.sigma).to_rgb8();
                     log::info!("Blured ok");
+                    let mut pixel_list: Vec<(u32, u32)> = Vec::new();
                     let only_ball = ImageBuffer::from_fn(
                         image_blured.width(),
                         image_blured.height(),
@@ -368,6 +388,7 @@ async fn crop_and_register(args: &Args, gray_imgs: &[DynamicImage]) -> Vec<Dynam
                             {
                                 let px = image_blured[(x, y)];
                                 if px.to_luma()[0] as f32 > 255.0 * args.config.threshold {
+                                    pixel_list.push((x, y));
                                     px
                                 } else {
                                     image::Rgb([50u8, 50u8, 50u8])
@@ -378,11 +399,30 @@ async fn crop_and_register(args: &Args, gray_imgs: &[DynamicImage]) -> Vec<Dynam
                         },
                     );
                     log::info!("Mask applied");
+                    max_coords.push(
+                        match pixel_list.iter().max_by(|a, b| {
+                            let gray_1 = image_blured[(a.0, a.1)].to_luma()[0];
+                            let gray_2 = image_blured[(b.0, b.1)].to_luma()[0];
+                            if gray_1 > gray_2 {
+                                cmp::Ordering::Greater
+                            } else {
+                                cmp::Ordering::Less
+                            }
+                        }) {
+                            None => {
+                                log::info!("No maximum found !!!");
+                                (0, 0)
+                            }
+                            Some(maxi) => *maxi,
+                        },
+                    );
+                    // only_ball[(max_coords)] = image::Rgb([255u8, 0u8, 0u8]);
                     DynamicImage::ImageRgb8(only_ball)
                 })
                 .collect()
         }
-    }
+    };
+    (max_coords, final_imgs)
 }
 
 async fn should_stop_bool(step: &str, progress: Option<u32>) -> bool {

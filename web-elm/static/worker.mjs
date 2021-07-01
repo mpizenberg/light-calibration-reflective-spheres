@@ -77,11 +77,12 @@ async function run(params) {
     const id = image_ids[i];
     console.log("   Encoding ", id, " ...");
     let croppedImgArrayU8 = SelectBall.cropped_img_file(i);
+	let lobe_center = SelectBall.lobes(i);
     // Transfer the array buffer back to main thread.
     postMessage(
       {
         type: "cropped-image",
-        data: { id, arrayBuffer: croppedImgArrayU8.buffer, imgCount },
+        data: { id, arrayBuffer: croppedImgArrayU8.buffer, imgCount, lobe_center: { x: lobe_center[0], y: lobe_center[1] } },
       },
       [croppedImgArrayU8.buffer]
     );
