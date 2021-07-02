@@ -325,7 +325,6 @@ type PointerMsg
 type ViewImgMsg
     = SelectMovingMode
     | SelectDrawingMode
-    | CropCurrentFrame
 
 
 
