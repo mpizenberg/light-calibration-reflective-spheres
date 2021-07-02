@@ -1051,7 +1051,8 @@ viewImgs ({ pointerMode, bboxesDrawn, viewer } as model) images =
                 , modeButton isMovingMode (ViewImgMsg SelectMovingMode) "Move mode" Icon.move
                 , Element.el [ width (Element.maximum 100 fill) ] Element.none
                 , modeButton (not isMovingMode) (ViewImgMsg SelectDrawingMode) "Draw the cropped working area as a bounding box" Icon.boundingBox
-                , clickButton centerX True (ViewImgMsg CropCurrentFrame) "Set the cropped working area to the current frame" Icon.maximize
+
+                -- , clickButton centerX True (ViewImgMsg CropCurrentFrame) "Set the cropped working area to the current frame" Icon.maximize
                 ]
 
         ( viewerWidth, viewerHeight ) =
