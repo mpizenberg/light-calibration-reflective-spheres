@@ -35,6 +35,14 @@ progressBarHeight =
     38
 
 
+type alias CroppedCircles =
+    { topLeft : Maybe BBox
+    , bottomLeft : Maybe BBox
+    , topRight : Maybe BBox
+    , bottomRight : Maybe BBox
+    }
+
+
 type alias Model =
     -- Current state of the application
     { state : State
@@ -45,7 +53,7 @@ type alias Model =
     , viewer : Viewer
     , registeredViewer : Viewer
     , pointerMode : PointerMode
-    , bboxDrawn : Maybe BBox
+    , bboxesDrawn : CroppedCircles
     , registeredImages : Maybe (Pivot Image)
     , registeredCenters : Maybe (Pivot { x : Int, y : Int })
     , logs : List { lvl : Int, content : String }
@@ -53,6 +61,7 @@ type alias Model =
     , autoscroll : Bool
     , runStep : RunStep
     , imagesCount : Int
+    , currentDrawingQuadrant : Maybe Quadrant
     }
 
 
@@ -66,7 +75,12 @@ initialModel size =
     , viewer = Viewer.withSize ( size.width, size.height - toFloat (headerHeight + progressBarHeight) )
     , registeredViewer = Viewer.withSize ( size.width, size.height - toFloat (headerHeight + progressBarHeight) )
     , pointerMode = WaitingMove
-    , bboxDrawn = Nothing
+    , bboxesDrawn =
+        { topLeft = Nothing
+        , bottomLeft = Nothing
+        , topRight = Nothing
+        , bottomRight = Nothing
+        }
     , registeredImages = Nothing
     , registeredCenters = Nothing
     , logs = []
@@ -74,6 +88,7 @@ initialModel size =
     , autoscroll = True
     , runStep = StepNotStarted
     , imagesCount = 0
+    , currentDrawingQuadrant = Nothing
     }
 
 
@@ -81,8 +96,23 @@ initialModel size =
 -- Params #########################################
 
 
+type Quadrant
+    = TopLeft
+    | TopRight
+    | BottomLeft
+    | BottomRight
+
+
+type alias CropSet =
+    { topLeft : Maybe Crop
+    , bottomLeft : Maybe Crop
+    , topRight : Maybe Crop
+    , bottomRight : Maybe Crop
+    }
+
+
 type alias Parameters =
-    { crop : Maybe Crop
+    { crops : CropSet
     , maxVerbosity : Int
     , sigma : Float
     , maskRay : Float
@@ -93,8 +123,10 @@ type alias Parameters =
 encodeParams : Parameters -> Value
 encodeParams params =
     Json.Encode.object
-        [ ( "crop", encodeMaybe encodeCrop params.crop )
-        , ( "maxVerbosity", Json.Encode.int params.maxVerbosity )
+        [ -- ( "crop", encodeMaybe encodeCrop params.crop )
+          ( "maxVerbosity", Json.Encode.int params.maxVerbosity )
+
+        -- , ( "maxVerbosity", Json.Encode.int params.maxVerbosity )
         , ( "sigma", Json.Encode.float params.sigma )
         , ( "maskRay", Json.Encode.float params.maskRay )
         , ( "threashold", Json.Encode.float params.threashold )
@@ -126,7 +158,12 @@ type alias ParametersToggleInfo =
 
 defaultParams : Parameters
 defaultParams =
-    { crop = Nothing
+    { crops =
+        { topLeft = Nothing
+        , bottomLeft = Nothing
+        , topRight = Nothing
+        , bottomRight = Nothing
+        }
     , maxVerbosity = 3
     , sigma = 1.2
     , maskRay = 0.8

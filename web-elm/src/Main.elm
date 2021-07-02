@@ -220,6 +220,10 @@ update msg model =
             ( { model | registeredViewer = zoomViewer zoomMsg model.registeredViewer }, Cmd.none )
 
         ( PointerMsg pointerMsg, ViewImgs { images } ) ->
+            let
+                img =
+                    Pivot.getC (Pivot.goToStart images)
+            in
             case ( pointerMsg, model.pointerMode ) of
                 -- Moving the viewer
                 ( PointerDownRaw event, WaitingMove ) ->
@@ -254,7 +258,8 @@ update msg model =
                             in
                             ( { model
                                 | pointerMode = PointerDrawFromOffsetAndClient pointer.offsetPos pointer.clientPos
-                                , bboxDrawn = Just { left = x, top = y, right = x, bottom = y }
+
+                                -- , bboxesDrawn = Just { left = x, top = y, right = x, bottom = y }
                               }
                             , capture event
                             )
@@ -278,23 +283,179 @@ update msg model =
 
                         bottom =
                             max y1 y2
+
+                        centerXCrop : Float
+                        centerXCrop =
+                            right
+                                + left
+                                |> (*) 0.5
+
+                        centerYCrop : Float
+                        centerYCrop =
+                            bottom
+                                + top
+                                |> (*) 0.5
+
+                        centerXView : Float
+                        centerXView =
+                            img.width
+                                |> toFloat
+                                |> (*) 0.5
+
+                        centerYView : Float
+                        centerYView =
+                            img.height
+                                |> toFloat
+                                |> (*) 0.5
+
+                        quadrant : Quadrant
+                        quadrant =
+                            if centerXCrop > centerXView then
+                                if centerYCrop > centerYView then
+                                    BottomRight
+
+                                else
+                                    TopRight
+
+                            else if centerYCrop > centerYView then
+                                BottomLeft
+
+                            else
+                                TopLeft
+
+                        oldBBoxes : CroppedCircles
+                        oldBBoxes =
+                            model.bboxesDrawn
+
+                        newBoxes : CroppedCircles
+                        newBoxes =
+                            case quadrant of
+                                TopLeft ->
+                                    { oldBBoxes
+                                        | topLeft =
+                                            Just
+                                                { left = left
+                                                , right = right
+                                                , top = top
+                                                , bottom = bottom
+                                                }
+                                    }
+
+                                TopRight ->
+                                    { oldBBoxes
+                                        | topRight =
+                                            Just
+                                                { left = left
+                                                , right = right
+                                                , top = top
+                                                , bottom = bottom
+                                                }
+                                    }
+
+                                BottomRight ->
+                                    { oldBBoxes
+                                        | bottomRight =
+                                            Just
+                                                { left = left
+                                                , right = right
+                                                , top = top
+                                                , bottom = bottom
+                                                }
+                                    }
+
+                                BottomLeft ->
+                                    { oldBBoxes
+                                        | bottomLeft =
+                                            Just
+                                                { left = left
+                                                , right = right
+                                                , top = top
+                                                , bottom = bottom
+                                                }
+                                    }
                     in
-                    ( { model | bboxDrawn = Just { left = left, top = top, right = right, bottom = bottom } }
+                    ( { model
+                        | bboxesDrawn =
+                            newBoxes
+                        , currentDrawingQuadrant = Just quadrant
+                      }
                     , Cmd.none
                     )
 
                 ( PointerUp _, PointerDrawFromOffsetAndClient _ _ ) ->
-                    case model.bboxDrawn of
+                    let
+                        oldBBoxes : CroppedCircles
+                        oldBBoxes =
+                            model.bboxesDrawn
+
+                        bboxDrawn : Maybe BBox
+                        bboxDrawn =
+                            case model.currentDrawingQuadrant of
+                                Nothing ->
+                                    Nothing
+
+                                Just something ->
+                                    case something of
+                                        TopLeft ->
+                                            model.bboxesDrawn.topLeft
+
+                                        BottomLeft ->
+                                            model.bboxesDrawn.bottomLeft
+
+                                        TopRight ->
+                                            model.bboxesDrawn.topRight
+
+                                        BottomRight ->
+                                            model.bboxesDrawn.bottomRight
+                    in
+                    case bboxDrawn of
+                        -- type : BBox (floats)
                         Just { left, right, top, bottom } ->
                             let
-                                img =
-                                    Pivot.getC (Pivot.goToStart images)
-
                                 oldParams =
                                     model.params
 
                                 oldParamsForm =
                                     model.paramsForm
+
+                                centerXCrop : Float
+                                centerXCrop =
+                                    right
+                                        + left
+                                        |> (*) 0.5
+
+                                centerYCrop : Float
+                                centerYCrop =
+                                    bottom
+                                        + top
+                                        |> (*) 0.5
+
+                                centerXView : Float
+                                centerXView =
+                                    img.width
+                                        |> toFloat
+                                        |> (*) 0.5
+
+                                centerYView : Float
+                                centerYView =
+                                    img.height
+                                        |> toFloat
+                                        |> (*) 0.5
+
+                                quadrant : Quadrant
+                                quadrant =
+                                    if centerXCrop > centerXView then
+                                        if centerYCrop > centerYView then
+                                            BottomRight
+
+                                        else
+                                            TopRight
+
+                                    else if centerYCrop > centerYView then
+                                        BottomLeft
+
+                                    else
+                                        TopLeft
                             in
                             if
                                 -- sufficient width
@@ -311,24 +472,160 @@ update msg model =
                                     newCropForm =
                                         snapBBox (BBox left top right bottom) oldParamsForm.crop
 
-                                    newCrop =
-                                        CropForm.decoded newCropForm
+                                    oldCrops : CropSet
+                                    oldCrops =
+                                        model.params.crops
                                 in
-                                ( { model
-                                    | pointerMode = WaitingDraw
-                                    , bboxDrawn = Maybe.map toBBox newCrop
-                                    , params = { oldParams | crop = newCrop }
-                                    , paramsForm = { oldParamsForm | crop = newCropForm }
-                                  }
-                                , Cmd.none
-                                )
+                                case quadrant of
+                                    TopLeft ->
+                                        let
+                                            newCrops : CropSet
+                                            newCrops =
+                                                { oldCrops
+                                                    | topLeft =
+                                                        Just
+                                                            { left = round left
+                                                            , right = round right
+                                                            , top = round top
+                                                            , bottom = round bottom
+                                                            }
+                                                }
+                                        in
+                                        ( { model
+                                            | pointerMode = WaitingDraw
+                                            , bboxesDrawn =
+                                                { oldBBoxes
+                                                    | topLeft =
+                                                        Just
+                                                            { left = left
+                                                            , right = right
+                                                            , top = top
+                                                            , bottom = bottom
+                                                            }
+                                                }
+                                            , params = { oldParams | crops = newCrops }
+                                            , paramsForm = { oldParamsForm | crop = newCropForm }
+                                          }
+                                        , Cmd.none
+                                        )
+
+                                    BottomLeft ->
+                                        let
+                                            newCrops : CropSet
+                                            newCrops =
+                                                { oldCrops
+                                                    | bottomLeft =
+                                                        Just
+                                                            { left = round left
+                                                            , right = round right
+                                                            , top = round top
+                                                            , bottom = round bottom
+                                                            }
+                                                }
+                                        in
+                                        ( { model
+                                            | pointerMode = WaitingDraw
+                                            , bboxesDrawn =
+                                                { oldBBoxes
+                                                    | bottomLeft =
+                                                        Just
+                                                            { left = left
+                                                            , right = right
+                                                            , top = top
+                                                            , bottom = bottom
+                                                            }
+                                                }
+                                            , params = { oldParams | crops = newCrops }
+                                            , paramsForm = { oldParamsForm | crop = newCropForm }
+                                          }
+                                        , Cmd.none
+                                        )
+
+                                    TopRight ->
+                                        let
+                                            newCrops : CropSet
+                                            newCrops =
+                                                { oldCrops
+                                                    | topRight =
+                                                        Just
+                                                            { left = round left
+                                                            , right = round right
+                                                            , top = round top
+                                                            , bottom = round bottom
+                                                            }
+                                                }
+                                        in
+                                        ( { model
+                                            | pointerMode = WaitingDraw
+                                            , bboxesDrawn =
+                                                { oldBBoxes
+                                                    | topRight =
+                                                        Just
+                                                            { left = left
+                                                            , right = right
+                                                            , top = top
+                                                            , bottom = bottom
+                                                            }
+                                                }
+                                            , params = { oldParams | crops = newCrops }
+                                            , paramsForm = { oldParamsForm | crop = newCropForm }
+                                          }
+                                        , Cmd.none
+                                        )
+
+                                    BottomRight ->
+                                        let
+                                            newCrops : CropSet
+                                            newCrops =
+                                                { oldCrops
+                                                    | bottomRight =
+                                                        Just
+                                                            { left = round left
+                                                            , right = round right
+                                                            , top = round top
+                                                            , bottom = round bottom
+                                                            }
+                                                }
+                                        in
+                                        ( { model
+                                            | pointerMode = WaitingDraw
+                                            , bboxesDrawn =
+                                                { oldBBoxes
+                                                    | bottomRight =
+                                                        Just
+                                                            { left = left
+                                                            , right = right
+                                                            , top = top
+                                                            , bottom = bottom
+                                                            }
+                                                }
+                                            , params = { oldParams | crops = newCrops }
+                                            , paramsForm = { oldParamsForm | crop = newCropForm }
+                                            , currentDrawingQuadrant = Just quadrant
+                                          }
+                                        , Cmd.none
+                                        )
 
                             else
                                 ( { model
                                     | pointerMode = WaitingDraw
-                                    , bboxDrawn = Nothing
-                                    , params = { oldParams | crop = Nothing }
+                                    , bboxesDrawn =
+                                        { topLeft = Nothing
+                                        , topRight = Nothing
+                                        , bottomLeft = Nothing
+                                        , bottomRight = Nothing
+                                        }
+                                    , params =
+                                        { oldParams
+                                            | crops =
+                                                { topLeft = Nothing
+                                                , topRight = Nothing
+                                                , bottomLeft = Nothing
+                                                , bottomRight = Nothing
+                                                }
+                                        }
                                     , paramsForm = { oldParamsForm | crop = CropForm.toggle False oldParamsForm.crop }
+                                    , currentDrawingQuadrant = Nothing
                                   }
                                 , Cmd.none
                                 )
@@ -339,60 +636,51 @@ update msg model =
                 _ ->
                     ( model, Cmd.none )
 
-        ( ViewImgMsg CropCurrentFrame, ViewImgs { images } ) ->
-            let
-                img =
-                    Pivot.getC (Pivot.goToStart images)
-
-                ( left, top ) =
-                    model.viewer.origin
-
-                ( width, height ) =
-                    model.viewer.size
-
-                right =
-                    left + model.viewer.scale * width
-
-                bottom =
-                    top + model.viewer.scale * height
-
-                oldParams =
-                    model.params
-
-                oldParamsForm =
-                    model.paramsForm
-            in
-            if
-                -- at least one corner inside the image
-                (right > 0)
-                    && (left < toFloat img.width)
-                    && (bottom > 0)
-                    && (top < toFloat img.height)
-            then
-                let
-                    newCropForm =
-                        snapBBox (BBox left top right bottom) oldParamsForm.crop
-
-                    newCrop =
-                        CropForm.decoded newCropForm
-                in
-                ( { model
-                    | bboxDrawn = Maybe.map toBBox newCrop
-                    , params = { oldParams | crop = newCrop }
-                    , paramsForm = { oldParamsForm | crop = newCropForm }
-                  }
-                , Cmd.none
-                )
-
-            else
-                ( { model
-                    | bboxDrawn = Nothing
-                    , params = { oldParams | crop = Nothing }
-                    , paramsForm = { oldParamsForm | crop = CropForm.toggle False oldParamsForm.crop }
-                  }
-                , Cmd.none
-                )
-
+        -- ( ViewImgMsg CropCurrentFrame, ViewImgs { images } ) ->
+        --     let
+        --         img =
+        --             Pivot.getC (Pivot.goToStart images)
+        --         ( left, top ) =
+        --             model.viewer.origin
+        --         ( width, height ) =
+        --             model.viewer.size
+        --         right =
+        --             left + model.viewer.scale * width
+        --         bottom =
+        --             top + model.viewer.scale * height
+        --         oldParams =
+        --             model.params
+        --         oldParamsForm =
+        --             model.paramsForm
+        --     in
+        --     if
+        --         -- at least one corner inside the image
+        --         (right > 0)
+        --             && (left < toFloat img.width)
+        --             && (bottom > 0)
+        --             && (top < toFloat img.height)
+        --     then
+        --         let
+        --             newCropForm =
+        --                 snapBBox (BBox left top right bottom) oldParamsForm.crop
+        --             newCrop =
+        --                 CropForm.decoded newCropForm
+        --         in
+        --         ( { model
+        --             | bboxDrawn = Maybe.map toBBox newCrop
+        --             , params = { oldParams | crop = newCrop }
+        --             , paramsForm = { oldParamsForm | crop = newCropForm }
+        --           }
+        --         , Cmd.none
+        --         )
+        --     else
+        --         ( { model
+        --             | bboxDrawn = Nothing
+        --             , params = { oldParams | crop = Nothing }
+        --             , paramsForm = { oldParamsForm | crop = CropForm.toggle False oldParamsForm.crop }
+        --           }
+        --         , Cmd.none
+        --         )
         ( ViewImgMsg SelectMovingMode, ViewImgs _ ) ->
             ( { model | pointerMode = WaitingMove }, Cmd.none )
 
@@ -650,20 +938,29 @@ updateParams msg ({ params, paramsForm } as model) =
             let
                 newCropForm =
                     CropForm.toggle activeCrop paramsForm.crop
+
+                oldBboxes =
+                    model.bboxesDrawn
+
+                oldParams =
+                    model.params
+
+                oldCrops =
+                    oldParams.crops
             in
             case ( activeCrop, CropForm.decoded newCropForm ) of
                 ( True, Just crop ) ->
                     { model
-                        | params = { params | crop = Just crop }
+                        | params = { oldParams | crops = { oldCrops | topLeft = Just crop } }
                         , paramsForm = { paramsForm | crop = newCropForm }
-                        , bboxDrawn = Just (toBBox crop)
+                        , bboxesDrawn = { oldBboxes | topLeft = Just (toBBox crop) }
                     }
 
                 _ ->
                     { model
-                        | params = { params | crop = Nothing }
+                        | params = { oldParams | crops = { oldCrops | topLeft = Nothing } }
                         , paramsForm = { paramsForm | crop = newCropForm }
-                        , bboxDrawn = Nothing
+                        , bboxesDrawn = { oldBboxes | topLeft = Nothing }
                     }
 
         ChangeCropLeft str ->
@@ -739,19 +1036,32 @@ changeCropSide updateSide model =
         params =
             model.params
 
+        oldCrops =
+            params.crops
+
         paramsForm =
             model.paramsForm
+
+        oldBboxes =
+            model.bboxesDrawn
 
         newCropForm =
             updateSide paramsForm.crop
 
+        newCrop : Maybe { left : Int, right : Int, top : Int, bottom : Int }
         newCrop =
             CropForm.decoded newCropForm
     in
     { model
-        | params = { params | crop = newCrop }
+        | params =
+            { params
+                | crops =
+                    { oldCrops
+                        | topLeft = newCrop
+                    }
+            }
         , paramsForm = { paramsForm | crop = newCropForm }
-        , bboxDrawn = Maybe.map toBBox newCrop
+        , bboxesDrawn = { oldBboxes | topLeft = Maybe.map toBBox newCrop }
     }
 
 

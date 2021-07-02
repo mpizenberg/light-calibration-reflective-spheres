@@ -983,7 +983,7 @@ toggleCheckboxWidget { offColor, onColor, sliderColor, toggleWidth, toggleHeight
 
 
 viewImgs : Model -> Pivot Image -> Element Msg
-viewImgs ({ pointerMode, bboxDrawn, viewer } as model) images =
+viewImgs ({ pointerMode, bboxesDrawn, viewer } as model) images =
     let
         img =
             Pivot.getC images
@@ -1070,10 +1070,11 @@ viewImgs ({ pointerMode, bboxDrawn, viewer } as model) images =
                 ( 0, 0 )
                 img.texture
 
-        renderedBbox =
-            case bboxDrawn of
+        renderedBboxTopLeft : List Canvas.Shape
+        renderedBboxTopLeft =
+            case bboxesDrawn.topLeft of
                 Nothing ->
-                    Canvas.shapes [] []
+                    []
 
                 Just { left, top, right, bottom } ->
                     let
@@ -1100,22 +1101,149 @@ viewImgs ({ pointerMode, bboxDrawn, viewer } as model) images =
                         cyCircle : Float
                         cyCircle =
                             top + bottom |> (*) 0.5
-
-                        strokeWidth =
-                            viewer.scale * 2
                     in
-                    Canvas.shapes
-                        [ Canvas.Settings.fill (Color.rgba 1 1 1 0.3)
-                        , Canvas.Settings.stroke Color.red
-                        , Canvas.Settings.Line.lineWidth strokeWidth
-                        , Viewer.Canvas.transform viewer
-                        ]
-                        [ Canvas.circle ( cxCircle, cyCircle ) ray
-                        , Canvas.path ( left, top )
-                            [ Canvas.lineTo ( right, bottom ) ]
-                        , Canvas.path ( right, top )
-                            [ Canvas.lineTo ( left, bottom ) ]
-                        ]
+                    [ Canvas.circle ( cxCircle, cyCircle ) ray
+                    , Canvas.path ( left, top )
+                        [ Canvas.lineTo ( right, bottom ) ]
+                    , Canvas.path ( right, top )
+                        [ Canvas.lineTo ( left, bottom ) ]
+                    ]
+
+        renderedBboxTopRight : List Canvas.Shape
+        renderedBboxTopRight =
+            case bboxesDrawn.topRight of
+                Nothing ->
+                    []
+
+                Just { left, top, right, bottom } ->
+                    let
+                        bboxWidth : Float
+                        bboxWidth =
+                            right - left
+
+                        bboxHeight : Float
+                        bboxHeight =
+                            bottom - top
+
+                        ray : Float
+                        ray =
+                            sqrt
+                                ((bboxWidth * bboxWidth)
+                                    + (bboxHeight * bboxHeight)
+                                )
+                                |> (*) 0.5
+
+                        cxCircle : Float
+                        cxCircle =
+                            left + right |> (*) 0.5
+
+                        cyCircle : Float
+                        cyCircle =
+                            top + bottom |> (*) 0.5
+                    in
+                    [ Canvas.circle ( cxCircle, cyCircle ) ray
+                    , Canvas.path ( left, top )
+                        [ Canvas.lineTo ( right, bottom ) ]
+                    , Canvas.path ( right, top )
+                        [ Canvas.lineTo ( left, bottom ) ]
+                    ]
+
+        renderedBboxBottomLeft : List Canvas.Shape
+        renderedBboxBottomLeft =
+            case bboxesDrawn.bottomLeft of
+                Nothing ->
+                    []
+
+                Just { left, top, right, bottom } ->
+                    let
+                        bboxWidth : Float
+                        bboxWidth =
+                            right - left
+
+                        bboxHeight : Float
+                        bboxHeight =
+                            bottom - top
+
+                        ray : Float
+                        ray =
+                            sqrt
+                                ((bboxWidth * bboxWidth)
+                                    + (bboxHeight * bboxHeight)
+                                )
+                                |> (*) 0.5
+
+                        cxCircle : Float
+                        cxCircle =
+                            left + right |> (*) 0.5
+
+                        cyCircle : Float
+                        cyCircle =
+                            top + bottom |> (*) 0.5
+                    in
+                    [ Canvas.circle ( cxCircle, cyCircle ) ray
+                    , Canvas.path ( left, top )
+                        [ Canvas.lineTo ( right, bottom ) ]
+                    , Canvas.path ( right, top )
+                        [ Canvas.lineTo ( left, bottom ) ]
+                    ]
+
+        renderedBboxBottomRight : List Canvas.Shape
+        renderedBboxBottomRight =
+            case bboxesDrawn.bottomRight of
+                Nothing ->
+                    []
+
+                Just { left, top, right, bottom } ->
+                    let
+                        bboxWidth : Float
+                        bboxWidth =
+                            right - left
+
+                        bboxHeight : Float
+                        bboxHeight =
+                            bottom - top
+
+                        ray : Float
+                        ray =
+                            sqrt
+                                ((bboxWidth * bboxWidth)
+                                    + (bboxHeight * bboxHeight)
+                                )
+                                |> (*) 0.5
+
+                        cxCircle : Float
+                        cxCircle =
+                            left + right |> (*) 0.5
+
+                        cyCircle : Float
+                        cyCircle =
+                            top + bottom |> (*) 0.5
+                    in
+                    [ Canvas.circle ( cxCircle, cyCircle ) ray
+                    , Canvas.path ( left, top )
+                        [ Canvas.lineTo ( right, bottom ) ]
+                    , Canvas.path ( right, top )
+                        [ Canvas.lineTo ( left, bottom ) ]
+                    ]
+
+        completeRenderedBbox : Canvas.Renderable
+        completeRenderedBbox =
+            let
+                strokeWidth =
+                    viewer.scale * 2
+            in
+            [ renderedBboxTopLeft
+            , renderedBboxBottomLeft
+            , renderedBboxTopRight
+            , renderedBboxBottomRight
+            ]
+                |> List.concat
+                |> Canvas.shapes
+                    [ Canvas.Settings.fill (Color.rgba 1 1 1 0.3)
+                    , Canvas.Settings.stroke Color.red
+                    , Canvas.Settings.Line.lineWidth strokeWidth
+                    , Viewer.Canvas.transform viewer
+                    ]
 
         canvasViewer =
             Canvas.toHtml ( round viewerWidth, round viewerHeight )
@@ -1131,7 +1259,7 @@ viewImgs ({ pointerMode, bboxDrawn, viewer } as model) images =
                             (Json.Decode.field "clientX" Json.Decode.float)
                             (Json.Decode.field "clientY" Json.Decode.float)
                 ]
-                [ clearCanvas, renderedImage, renderedBbox ]
+                [ clearCanvas, renderedImage, completeRenderedBbox ]
     in
     Element.column [ height fill ]
         [ headerBar
