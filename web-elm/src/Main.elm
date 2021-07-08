@@ -1,7 +1,5 @@
 port module Main exposing (main)
 
--- import Model exposing (BBox, FileDraggingState, Image, Model, Msg, NavigationMsg, Parameters, ParametersForm, ParametersToggleInfo, PointerMode, RunStep, State, defaultParams, defaultParamsForm, defaultParamsInfo, encodeMaybe, encodeParams, headerHeight, initialModel, progressBarHeight)
-
 import Browser
 import Browser.Dom
 import Canvas.Texture
@@ -59,10 +57,26 @@ port log : ({ lvl : Int, content : String } -> msg) -> Sub msg
 port updateRunStep : ({ step : String, progress : Maybe Int } -> msg) -> Sub msg
 
 
-port receiveCroppedImages : (List { id : String, img : Value } -> msg) -> Sub msg
+port receiveCroppedImages :
+    ({ tl : List { id : String, img : Value }
+     , tr : List { id : String, img : Value }
+     , bl : List { id : String, img : Value }
+     , br : List { id : String, img : Value }
+     }
+     -> msg
+    )
+    -> Sub msg
 
 
-port receiveCenters : (List { x : Int, y : Int } -> msg) -> Sub msg
+port receiveCenters :
+    ({ tl : List { x : Int, y : Int }
+     , tr : List { x : Int, y : Int }
+     , bl : List { x : Int, y : Int }
+     , br : List { x : Int, y : Int }
+     }
+     -> msg
+    )
+    -> Sub msg
 
 
 main : Program Device.Size Model Msg
@@ -115,10 +129,19 @@ update msg model =
             ( model, Cmd.none )
 
         ( WindowResizes size, _ ) ->
+            let
+                oldRegisteredViewer =
+                    model.registeredViewer
+            in
             ( { model
                 | device = Device.classify size
                 , viewer = Viewer.resize ( size.width, size.height - toFloat (Model.headerHeight + Model.progressBarHeight) ) model.viewer
-                , registeredViewer = Viewer.resize ( size.width, size.height - toFloat (Model.headerHeight + Model.progressBarHeight) ) model.registeredViewer
+                , registeredViewer =
+                    { tl = Viewer.resize ( size.width, size.height - toFloat (Model.headerHeight + Model.progressBarHeight) ) oldRegisteredViewer.tl
+                    , tr = Viewer.resize ( size.width, size.height - toFloat (Model.headerHeight + Model.progressBarHeight) ) oldRegisteredViewer.tr
+                    , bl = Viewer.resize ( size.width, size.height - toFloat (Model.headerHeight + Model.progressBarHeight) ) oldRegisteredViewer.bl
+                    , br = Viewer.resize ( size.width, size.height - toFloat (Model.headerHeight + Model.progressBarHeight) ) oldRegisteredViewer.br
+                    }
               }
             , Cmd.none
             )
@@ -195,6 +218,63 @@ update msg model =
                 _ ->
                     ( model, Cmd.none )
 
+        ( KeyDown rawKey, Registration _ ) ->
+            let
+                oldRegisteredViewer =
+                    model.registeredViewer
+            in
+            case Keyboard.navigationKey rawKey of
+                Just Keyboard.ArrowRight ->
+                    ( { model
+                        | registeredViewer =
+                            { tl = Viewer.pan ( -10.0, 0.0 ) oldRegisteredViewer.tl
+                            , tr = Viewer.pan ( -10.0, 0.0 ) oldRegisteredViewer.tr
+                            , bl = Viewer.pan ( -10.0, 0.0 ) oldRegisteredViewer.bl
+                            , br = Viewer.pan ( -10.0, 0.0 ) oldRegisteredViewer.br
+                            }
+                      }
+                    , Cmd.none
+                    )
+
+                Just Keyboard.ArrowLeft ->
+                    ( { model
+                        | registeredViewer =
+                            { tl = Viewer.pan ( 10.0, 0.0 ) oldRegisteredViewer.tl
+                            , tr = Viewer.pan ( 10.0, 0.0 ) oldRegisteredViewer.tr
+                            , bl = Viewer.pan ( 10.0, 0.0 ) oldRegisteredViewer.bl
+                            , br = Viewer.pan ( 10.0, 0.0 ) oldRegisteredViewer.br
+                            }
+                      }
+                    , Cmd.none
+                    )
+
+                Just Keyboard.ArrowUp ->
+                    ( { model
+                        | registeredViewer =
+                            { tl = Viewer.pan ( 0.0, 10.0 ) oldRegisteredViewer.tl
+                            , tr = Viewer.pan ( 0.0, 10.0 ) oldRegisteredViewer.tr
+                            , bl = Viewer.pan ( 0.0, 10.0 ) oldRegisteredViewer.bl
+                            , br = Viewer.pan ( 0.0, 10.0 ) oldRegisteredViewer.br
+                            }
+                      }
+                    , Cmd.none
+                    )
+
+                Just Keyboard.ArrowDown ->
+                    ( { model
+                        | registeredViewer =
+                            { tl = Viewer.pan ( 0.0, -10.0 ) oldRegisteredViewer.tl
+                            , tr = Viewer.pan ( 0.0, -10.0 ) oldRegisteredViewer.tr
+                            , bl = Viewer.pan ( 0.0, -10.0 ) oldRegisteredViewer.bl
+                            , br = Viewer.pan ( 0.0, -10.0 ) oldRegisteredViewer.br
+                            }
+                      }
+                    , Cmd.none
+                    )
+
+                _ ->
+                    ( model, Cmd.none )
+
         ( ParamsMsg paramsMsg, Config _ ) ->
             ( updateParams paramsMsg model, Cmd.none )
 
@@ -217,7 +297,7 @@ update msg model =
             ( { model | viewer = zoomViewer zoomMsg model.viewer }, Cmd.none )
 
         ( ZoomMsg zoomMsg, Registration _ ) ->
-            ( { model | registeredViewer = zoomViewer zoomMsg model.registeredViewer }, Cmd.none )
+            ( { model | registeredViewer = zoomViewerReg zoomMsg model.registeredViewer }, Cmd.none )
 
         ( PointerMsg pointerMsg, ViewImgs { images } ) ->
             let
@@ -636,51 +716,68 @@ update msg model =
                 _ ->
                     ( model, Cmd.none )
 
-        -- ( ViewImgMsg CropCurrentFrame, ViewImgs { images } ) ->
-        --     let
-        --         img =
-        --             Pivot.getC (Pivot.goToStart images)
-        --         ( left, top ) =
-        --             model.viewer.origin
-        --         ( width, height ) =
-        --             model.viewer.size
-        --         right =
-        --             left + model.viewer.scale * width
-        --         bottom =
-        --             top + model.viewer.scale * height
-        --         oldParams =
-        --             model.params
-        --         oldParamsForm =
-        --             model.paramsForm
-        --     in
-        --     if
-        --         -- at least one corner inside the image
-        --         (right > 0)
-        --             && (left < toFloat img.width)
-        --             && (bottom > 0)
-        --             && (top < toFloat img.height)
-        --     then
-        --         let
-        --             newCropForm =
-        --                 snapBBox (BBox left top right bottom) oldParamsForm.crop
-        --             newCrop =
-        --                 CropForm.decoded newCropForm
-        --         in
-        --         ( { model
-        --             | bboxDrawn = Maybe.map toBBox newCrop
-        --             , params = { oldParams | crop = newCrop }
-        --             , paramsForm = { oldParamsForm | crop = newCropForm }
-        --           }
-        --         , Cmd.none
-        --         )
-        --     else
-        --         ( { model
-        --             | bboxDrawn = Nothing
-        --             , params = { oldParams | crop = Nothing }
-        --             , paramsForm = { oldParamsForm | crop = CropForm.toggle False oldParamsForm.crop }
-        --           }
-        --         , Cmd.none
-        --         )
+        ( PointerMsg pointerMsg, Registration _ ) ->
+            case ( pointerMsg, model.pointerMode ) of
+                -- Moving the viewer
+                ( PointerDownRaw event, WaitingMove ) ->
+                    case Json.Decode.decodeValue Pointer.eventDecoder event of
+                        Err _ ->
+                            ( { model | currentDrawingQuadrant = Just TopLeft }, Cmd.none )
+
+                        Ok { pointer } ->
+                            ( { model | pointerMode = PointerMovingFromClientCoords pointer.clientPos }, capture event )
+
+                ( PointerMove ( newX, newY ), PointerMovingFromClientCoords ( x, y ) ) ->
+                    let
+                        oldRegisteredViewer =
+                            model.registeredViewer
+
+                        size : Device.Size
+                        size =
+                            model.device.size
+
+                        quadrant : Quadrant
+                        quadrant =
+                            if x < (size.width / 2) then
+                                if y < (size.height / 2) then
+                                    TopLeft
+
+                                else
+                                    BottomLeft
+
+                            else if y < (size.height / 2) then
+                                TopRight
+
+                            else
+                                BottomRight
+
+                        newRegisteredViewer =
+                            case quadrant of
+                                TopLeft ->
+                                    { oldRegisteredViewer | tl = Viewer.pan ( newX - x, newY - y ) oldRegisteredViewer.tl }
+
+                                TopRight ->
+                                    { oldRegisteredViewer | tr = Viewer.pan ( newX - x, newY - y ) oldRegisteredViewer.tr }
+
+                                BottomLeft ->
+                                    { oldRegisteredViewer | bl = Viewer.pan ( newX - x, newY - y ) oldRegisteredViewer.bl }
+
+                                BottomRight ->
+                                    { oldRegisteredViewer | br = Viewer.pan ( newX - x, newY - y ) oldRegisteredViewer.br }
+                    in
+                    ( { model
+                        | registeredViewer = newRegisteredViewer
+                        , pointerMode = PointerMovingFromClientCoords ( newX, newY )
+                      }
+                    , Cmd.none
+                    )
+
+                ( PointerUp _, PointerMovingFromClientCoords _ ) ->
+                    ( { model | pointerMode = WaitingMove }, Cmd.none )
+
+                _ ->
+                    ( model, Cmd.none )
+
         ( ViewImgMsg SelectMovingMode, ViewImgs _ ) ->
             ( { model | pointerMode = WaitingMove }, Cmd.none )
 
@@ -692,8 +789,8 @@ update msg model =
 
         ( ClickPreviousImage, Registration _ ) ->
             ( { model
-                | registeredImages = Maybe.map goToPreviousImage model.registeredImages
-                , registeredCenters = Maybe.map goToPreviousCenter model.registeredCenters
+                | registeredImages = goToPreviousImageReg model.registeredImages
+                , registeredCenters = goToPreviousCenterReg model.registeredCenters
               }
             , Cmd.none
             )
@@ -703,23 +800,23 @@ update msg model =
 
         ( ClickNextImage, Registration _ ) ->
             ( { model
-                | registeredImages = Maybe.map goToNextImage model.registeredImages
-                , registeredCenters = Maybe.map goToNextCenter model.registeredCenters
+                | registeredImages = goToNextImageReg model.registeredImages
+                , registeredCenters = goToNextCenterReg model.registeredCenters
               }
             , Cmd.none
             )
 
         ( RunAlgorithm params, ViewImgs imgs ) ->
-            ( { model | state = Logs imgs, registeredImages = Nothing, runStep = StepNotStarted }, run (encodeParams params) )
+            ( { model | state = Logs imgs, registeredImages = { tl = Nothing, tr = Nothing, bl = Nothing, br = Nothing }, runStep = StepNotStarted }, run (encodeParams params) )
 
         ( RunAlgorithm params, Config imgs ) ->
-            ( { model | state = Logs imgs, registeredImages = Nothing, runStep = StepNotStarted }, run (encodeParams params) )
+            ( { model | state = Logs imgs, registeredImages = { tl = Nothing, tr = Nothing, bl = Nothing, br = Nothing }, runStep = StepNotStarted }, run (encodeParams params) )
 
         ( RunAlgorithm params, Registration imgs ) ->
-            ( { model | state = Logs imgs, registeredImages = Nothing, runStep = StepNotStarted }, run (encodeParams params) )
+            ( { model | state = Logs imgs, registeredImages = { tl = Nothing, tr = Nothing, bl = Nothing, br = Nothing }, runStep = StepNotStarted }, run (encodeParams params) )
 
         ( RunAlgorithm params, Logs imgs ) ->
-            ( { model | state = Logs imgs, registeredImages = Nothing, runStep = StepNotStarted }, run (encodeParams params) )
+            ( { model | state = Logs imgs, registeredImages = { tl = Nothing, tr = Nothing, bl = Nothing, br = Nothing }, runStep = StepNotStarted }, run (encodeParams params) )
 
         ( StopRunning, _ ) ->
             ( { model | runStep = StepNotStarted }, stop () )
@@ -758,30 +855,152 @@ update msg model =
                 ( { model | autoscroll = False }, Cmd.none )
 
         ( ReceiveCroppedImages croppedImages, _ ) ->
-            case List.filterMap imageFromValue croppedImages of
-                [] ->
-                    ( model, Cmd.none )
+            let
+                croppedTL : Maybe (Pivot Image)
+                croppedTL =
+                    case List.filterMap imageFromValue croppedImages.tl of
+                        [] ->
+                            Nothing
 
-                firstImage :: otherImages ->
-                    ( { model
-                        | registeredImages = Just (Pivot.fromCons firstImage otherImages)
-                        , registeredViewer = Viewer.fitImage 1.0 ( toFloat firstImage.width, toFloat firstImage.height ) model.registeredViewer
-                      }
-                    , Cmd.none
-                    )
+                        firstImage :: otherImages ->
+                            Just (Pivot.fromCons firstImage otherImages)
+
+                croppedTR : Maybe (Pivot Image)
+                croppedTR =
+                    case List.filterMap imageFromValue croppedImages.tr of
+                        [] ->
+                            Nothing
+
+                        firstImage :: otherImages ->
+                            Just (Pivot.fromCons firstImage otherImages)
+
+                croppedBL : Maybe (Pivot Image)
+                croppedBL =
+                    case List.filterMap imageFromValue croppedImages.bl of
+                        [] ->
+                            Nothing
+
+                        firstImage :: otherImages ->
+                            Just (Pivot.fromCons firstImage otherImages)
+
+                croppedBR : Maybe (Pivot Image)
+                croppedBR =
+                    case List.filterMap imageFromValue croppedImages.br of
+                        [] ->
+                            Nothing
+
+                        firstImage :: otherImages ->
+                            Just (Pivot.fromCons firstImage otherImages)
+
+                getSize : (Image -> Int) -> Pivot Image -> Float
+                getSize dim piv =
+                    piv
+                        |> Pivot.getC
+                        |> dim
+                        |> toFloat
+
+                oldRegisteredViewer =
+                    model.registeredViewer
+            in
+            ( { model
+                | registeredImages =
+                    { tl = croppedTL
+                    , tr = croppedTR
+                    , bl = croppedBL
+                    , br = croppedBR
+                    }
+                , registeredViewer =
+                    { tl =
+                        case croppedTL of
+                            Nothing ->
+                                oldRegisteredViewer.tl
+
+                            Just piv ->
+                                Viewer.fitImage 2.0 ( getSize .width piv, getSize .height piv ) oldRegisteredViewer.tl
+                    , tr =
+                        case croppedTR of
+                            Nothing ->
+                                oldRegisteredViewer.tr
+
+                            Just piv ->
+                                Viewer.fitImage 2.0 ( getSize .width piv, getSize .height piv ) oldRegisteredViewer.tr
+                    , bl =
+                        case croppedBL of
+                            Nothing ->
+                                oldRegisteredViewer.bl
+
+                            Just piv ->
+                                Viewer.fitImage 2.0 ( getSize .width piv, getSize .height piv ) oldRegisteredViewer.bl
+                    , br =
+                        case croppedBR of
+                            Nothing ->
+                                oldRegisteredViewer.br
+
+                            Just piv ->
+                                Viewer.fitImage 2.0 ( getSize .width piv, getSize .height piv ) oldRegisteredViewer.br
+                    }
+              }
+            , Cmd.none
+            )
 
         ( ReceiveCenters centers, _ ) ->
-            case centers of
-                [] ->
-                    ( model, Cmd.none )
+            let
+                centersTL : Maybe (Pivot { x : Int, y : Int })
+                centersTL =
+                    case centers.tl of
+                        [] ->
+                            Nothing
 
-                firstCenter :: otherCenters ->
-                    ( { model
-                        | registeredCenters = Just (Pivot.fromCons firstCenter otherCenters)
-                      }
-                    , Cmd.none
-                    )
+                        firstCenter :: otherCenters ->
+                            Just (Pivot.fromCons firstCenter otherCenters)
 
+                centersTR : Maybe (Pivot { x : Int, y : Int })
+                centersTR =
+                    case centers.tr of
+                        [] ->
+                            Nothing
+
+                        firstCenter :: otherCenters ->
+                            Just (Pivot.fromCons firstCenter otherCenters)
+
+                centersBL : Maybe (Pivot { x : Int, y : Int })
+                centersBL =
+                    case centers.bl of
+                        [] ->
+                            Nothing
+
+                        firstCenter :: otherCenters ->
+                            Just (Pivot.fromCons firstCenter otherCenters)
+
+                centersBR : Maybe (Pivot { x : Int, y : Int })
+                centersBR =
+                    case centers.br of
+                        [] ->
+                            Nothing
+
+                        firstCenter :: otherCenters ->
+                            Just (Pivot.fromCons firstCenter otherCenters)
+            in
+            ( { model
+                | registeredCenters =
+                    { tl = centersTL
+                    , tr = centersTR
+                    , bl = centersBL
+                    , br = centersBR
+                    }
+              }
+            , Cmd.none
+            )
+
+        -- case centers of
+        --     [] ->
+        --         ( model, Cmd.none )
+        --     firstCenter :: otherCenters ->
+        --         ( { model
+        --             | registeredCenters = Just (Pivot.fromCons firstCenter otherCenters)
+        --           }
+        --         , Cmd.none
+        --         )
         ( SaveRegisteredImages, _ ) ->
             ( model, saveRegisteredImages model.imagesCount )
 
@@ -822,9 +1041,50 @@ goToPreviousImage images =
     Maybe.withDefault (Pivot.goToEnd images) (Pivot.goL images)
 
 
+goToPreviousImageReg :
+    { tl : Maybe (Pivot Image)
+    , tr : Maybe (Pivot Image)
+    , bl : Maybe (Pivot Image)
+    , br : Maybe (Pivot Image)
+    }
+    ->
+        -- Pivot Image
+        { tl : Maybe (Pivot Image)
+        , tr : Maybe (Pivot Image)
+        , bl : Maybe (Pivot Image)
+        , br : Maybe (Pivot Image)
+        }
+goToPreviousImageReg images =
+    { tl = Maybe.map goToPreviousImage images.tl
+    , tr = Maybe.map goToPreviousImage images.tr
+    , bl = Maybe.map goToPreviousImage images.bl
+    , br = Maybe.map goToPreviousImage images.br
+    }
+
+
 goToPreviousCenter : Pivot { x : Int, y : Int } -> Pivot { x : Int, y : Int }
 goToPreviousCenter centers =
     Maybe.withDefault (Pivot.goToEnd centers) (Pivot.goL centers)
+
+
+goToPreviousCenterReg :
+    { tl : Maybe (Pivot { x : Int, y : Int })
+    , tr : Maybe (Pivot { x : Int, y : Int })
+    , bl : Maybe (Pivot { x : Int, y : Int })
+    , br : Maybe (Pivot { x : Int, y : Int })
+    }
+    ->
+        { tl : Maybe (Pivot { x : Int, y : Int })
+        , tr : Maybe (Pivot { x : Int, y : Int })
+        , bl : Maybe (Pivot { x : Int, y : Int })
+        , br : Maybe (Pivot { x : Int, y : Int })
+        }
+goToPreviousCenterReg centers =
+    { tl = Maybe.map goToPreviousCenter centers.tl
+    , tr = Maybe.map goToPreviousCenter centers.tr
+    , bl = Maybe.map goToPreviousCenter centers.bl
+    , br = Maybe.map goToPreviousCenter centers.br
+    }
 
 
 goToNextImage : Pivot Image -> Pivot Image
@@ -832,9 +1092,50 @@ goToNextImage images =
     Maybe.withDefault (Pivot.goToStart images) (Pivot.goR images)
 
 
+goToNextImageReg :
+    { tl : Maybe (Pivot Image)
+    , tr : Maybe (Pivot Image)
+    , bl : Maybe (Pivot Image)
+    , br : Maybe (Pivot Image)
+    }
+    ->
+        -- Pivot Image
+        { tl : Maybe (Pivot Image)
+        , tr : Maybe (Pivot Image)
+        , bl : Maybe (Pivot Image)
+        , br : Maybe (Pivot Image)
+        }
+goToNextImageReg images =
+    { tl = Maybe.map goToNextImage images.tl
+    , tr = Maybe.map goToNextImage images.tr
+    , bl = Maybe.map goToNextImage images.bl
+    , br = Maybe.map goToNextImage images.br
+    }
+
+
 goToNextCenter : Pivot { x : Int, y : Int } -> Pivot { x : Int, y : Int }
 goToNextCenter centers =
     Maybe.withDefault (Pivot.goToStart centers) (Pivot.goR centers)
+
+
+goToNextCenterReg :
+    { tl : Maybe (Pivot { x : Int, y : Int })
+    , tr : Maybe (Pivot { x : Int, y : Int })
+    , bl : Maybe (Pivot { x : Int, y : Int })
+    , br : Maybe (Pivot { x : Int, y : Int })
+    }
+    ->
+        { tl : Maybe (Pivot { x : Int, y : Int })
+        , tr : Maybe (Pivot { x : Int, y : Int })
+        , bl : Maybe (Pivot { x : Int, y : Int })
+        , br : Maybe (Pivot { x : Int, y : Int })
+        }
+goToNextCenterReg centers =
+    { tl = Maybe.map goToNextCenter centers.tl
+    , tr = Maybe.map goToNextCenter centers.tr
+    , bl = Maybe.map goToNextCenter centers.bl
+    , br = Maybe.map goToNextCenter centers.br
+    }
 
 
 toBBox : Crop -> BBox
@@ -896,6 +1197,88 @@ zoomViewer msg viewer =
         ZoomAwayFrom coordinates ->
             Viewer.zoomAwayFrom coordinates viewer
 
+        -- Should not happen !!
+        _ ->
+            viewer
+
+
+zoomViewerReg : ZoomMsg -> { tl : Viewer, tr : Viewer, bl : Viewer, br : Viewer } -> { tl : Viewer, tr : Viewer, bl : Viewer, br : Viewer }
+zoomViewerReg msg viewer =
+    case msg of
+        ZoomInReg quadrant ->
+            case quadrant of
+                TopLeft ->
+                    { viewer | tl = Viewer.zoomIn viewer.tl }
+
+                TopRight ->
+                    { viewer | tr = Viewer.zoomIn viewer.tr }
+
+                BottomLeft ->
+                    { viewer | bl = Viewer.zoomIn viewer.bl }
+
+                BottomRight ->
+                    { viewer | br = Viewer.zoomIn viewer.br }
+
+        ZoomOutReg quadrant ->
+            case quadrant of
+                TopLeft ->
+                    { viewer | tl = Viewer.zoomOut viewer.tl }
+
+                TopRight ->
+                    { viewer | tr = Viewer.zoomOut viewer.tr }
+
+                BottomLeft ->
+                    { viewer | bl = Viewer.zoomOut viewer.bl }
+
+                BottomRight ->
+                    { viewer | br = Viewer.zoomOut viewer.br }
+
+        ZoomTowardReg quadrant coordinates ->
+            case quadrant of
+                TopLeft ->
+                    { viewer | tl = Viewer.zoomToward coordinates viewer.tl }
+
+                TopRight ->
+                    { viewer | tr = Viewer.zoomToward coordinates viewer.tr }
+
+                BottomLeft ->
+                    { viewer | bl = Viewer.zoomToward coordinates viewer.bl }
+
+                BottomRight ->
+                    { viewer | br = Viewer.zoomToward coordinates viewer.br }
+
+        ZoomAwayFromReg quadrant coordinates ->
+            case quadrant of
+                TopLeft ->
+                    { viewer | tl = Viewer.zoomAwayFrom coordinates viewer.tl }
+
+                TopRight ->
+                    { viewer | tr = Viewer.zoomAwayFrom coordinates viewer.tr }
+
+                BottomLeft ->
+                    { viewer | bl = Viewer.zoomAwayFrom coordinates viewer.bl }
+
+                BottomRight ->
+                    { viewer | br = Viewer.zoomAwayFrom coordinates viewer.br }
+
+        ZoomFitReg quadrant img ->
+            case quadrant of
+                TopLeft ->
+                    { viewer | tl = Viewer.fitImage 1.1 ( toFloat img.width, toFloat img.height ) viewer.tl }
+
+                TopRight ->
+                    { viewer | tr = Viewer.fitImage 1.1 ( toFloat img.width, toFloat img.height ) viewer.tr }
+
+                BottomLeft ->
+                    { viewer | bl = Viewer.fitImage 1.1 ( toFloat img.width, toFloat img.height ) viewer.bl }
+
+                BottomRight ->
+                    { viewer | br = Viewer.fitImage 1.1 ( toFloat img.width, toFloat img.height ) viewer.br }
+
+        -- Should not happen !
+        _ ->
+            viewer
+
 
 goTo : NavigationMsg -> Model -> { images : Pivot Image } -> Model
 goTo msg model data =
@@ -907,7 +1290,7 @@ goTo msg model data =
             { model | state = Config data }
 
         GoToPageRegistration ->
-            { model | state = Registration data }
+            { model | state = Registration data, pointerMode = WaitingMove }
 
         GoToPageLogs ->
             { model | state = Logs data }

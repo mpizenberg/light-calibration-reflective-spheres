@@ -2,7 +2,7 @@
 
 use image::DynamicImage;
 use image::{ImageBuffer, Pixel};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::cmp;
 use std::io::Cursor;
@@ -10,7 +10,7 @@ use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 
 use select_ball::img::crop::Crop;
-use select_ball::img::registration::{self};
+use select_ball::img::registration;
 
 #[macro_use]
 mod utils; // define console_log! macro
@@ -25,6 +25,12 @@ extern "C" {
 // https://github.com/rustwasm/wasm-bindgen/issues/1858
 #[wasm_bindgen]
 pub struct SelectBall(Rc<RefCell<SelectBallInner>>);
+
+#[derive(Serialize)]
+pub struct Point2D {
+    pub x: u32,
+    pub y: u32,
+}
 
 #[wasm_bindgen]
 impl SelectBall {
@@ -43,11 +49,11 @@ impl SelectBall {
     pub fn image_ids(&self) -> Result<JsValue, JsValue> {
         self.0.borrow().image_ids()
     }
-    pub fn cropped_img_file(&self, i: usize) -> Result<Box<[u8]>, JsValue> {
-        self.0.borrow().cropped_img_file(i)
+    pub fn cropped_img_file(&self, i: usize, channel: usize) -> Result<Box<[u8]>, JsValue> {
+        self.0.borrow().cropped_img_file(i, channel)
     }
-    pub fn lobes(&self, i: usize) -> js_sys::Array {
-        self.0.borrow().lobes(i)
+    pub fn lobes(&self, i: usize, channel: usize) -> JsValue {
+        self.0.borrow().lobes(i, channel)
     }
     pub fn register_and_save(&self, i: usize) -> Result<Box<[u8]>, JsValue> {
         self.0.borrow().register_and_save(i)
@@ -66,8 +72,8 @@ async fn async_run_rc(
 struct SelectBallInner {
     image_ids: Vec<String>,
     dataset: Vec<DynamicImage>,
-    crop_registered: Vec<DynamicImage>,
-    lobes_center: Vec<(u32, u32)>,
+    crops_registered: Vec<Vec<DynamicImage>>,
+    lobes_centers: Vec<Vec<(u32, u32)>>,
 }
 
 #[wasm_bindgen]
@@ -76,7 +82,10 @@ struct SelectBallInner {
 pub struct Args {
     pub config: registration::Config,
     pub equalize: Option<f32>,
-    pub crop: Option<Crop>,
+    pub crop_t_l: Option<Crop>,
+    pub crop_t_r: Option<Crop>,
+    pub crop_b_l: Option<Crop>,
+    pub crop_b_r: Option<Crop>,
 }
 
 impl SelectBallInner {
@@ -87,8 +96,13 @@ impl SelectBallInner {
         Self {
             image_ids: Vec::new(),
             dataset: Vec::new(),
-            crop_registered: Vec::new(),
-            lobes_center: Vec::new(),
+            // 4 channels :
+            //      0 -> top left
+            //      1 -> top right
+            //      2 -> bottom left
+            //      3 -> bottom right
+            crops_registered: vec![Vec::new(), Vec::new(), Vec::new(), Vec::new()],
+            lobes_centers: vec![Vec::new(), Vec::new(), Vec::new(), Vec::new()],
         }
     }
 
@@ -121,16 +135,37 @@ impl SelectBallInner {
     // Run the main select_ball registration algorithm.
     //                                                 Vec<f32>
     async fn run(&mut self, params: JsValue) -> Result<JsValue, JsValue> {
-        self.crop_registered.clear();
+        self.crops_registered[0].clear();
+        self.crops_registered[1].clear();
+        self.crops_registered[2].clear();
+        self.crops_registered[3].clear();
+        self.lobes_centers[0].clear();
+        self.lobes_centers[1].clear();
+        self.lobes_centers[2].clear();
+        self.lobes_centers[3].clear();
         let args: Args = params.into_serde().unwrap();
         utils::WasmLogger::setup(utils::verbosity_filter(args.config.verbosity));
 
         if self.dataset.is_empty() {
-            self.crop_registered = Vec::new();
+            self.crops_registered = vec![Vec::new(), Vec::new(), Vec::new(), Vec::new()];
+            self.lobes_centers = vec![Vec::new(), Vec::new(), Vec::new(), Vec::new()];
         } else {
-            let tmp = crop_and_register(&args, &self.dataset).await;
-            self.lobes_center = tmp.0;
-            self.crop_registered = tmp.1;
+            let mut channel = 0;
+            for corner in crop_and_register(&args, &self.dataset).await {
+                log::info!("Register channel {}", channel);
+                match corner {
+                    None => {
+                        self.lobes_centers[channel] = Vec::new();
+                        //(1..(self.dataset.len())).map(|_| (0, 0)).collect();
+                        self.crops_registered[channel] = Vec::new();
+                    }
+                    Some(centers_and_image_by_corner) => {
+                        self.lobes_centers[channel] = centers_and_image_by_corner.0;
+                        self.crops_registered[channel] = centers_and_image_by_corner.1;
+                    }
+                };
+                channel += 1;
+            }
         }
         let false_vector: Vec<f32> = Vec::new();
         return JsValue::from_serde(&false_vector).map_err(utils::report_error);
@@ -142,16 +177,43 @@ impl SelectBallInner {
     }
 
     // Retrieve the cropped registered images.
-    pub fn cropped_img_file(&self, i: usize) -> Result<Box<[u8]>, JsValue> {
-        encode(i, &self.crop_registered[i]).map_err(utils::report_error)
+    pub fn cropped_img_file(&self, i: usize, channel: usize) -> Result<Box<[u8]>, JsValue> {
+        if self.crops_registered[channel].is_empty() {
+            //let false_im = image::io::Reader::new(Cursor::new(buffer));
+            let mut false_im = image::RgbImage::new(2, 2);
+            false_im.put_pixel(0, 0, image::Rgb([255, 255, 0]));
+            false_im.put_pixel(0, 1, image::Rgb([0, 0, 0]));
+            false_im.put_pixel(1, 0, image::Rgb([0, 0, 0]));
+            false_im.put_pixel(1, 1, image::Rgb([255, 255, 0]));
+            // match false_im.decode() {
+            //     Err(e) => Err(JsValue::from(e.to_string())),
+            //     Ok(ok_im) => encode(i, &ok_im).map_err(utils::report_error),
+            // }
+            let false_im_rgb = DynamicImage::ImageRgb8(false_im);
+            encode(i, &false_im_rgb).map_err(utils::report_error)
+        } else {
+            // The ith image in the channel
+            encode(i, &self.crops_registered[channel][i]).map_err(utils::report_error)
+        }
     }
 
     // Retrieve the centers of the ith image lobes.
     //                                      (u32, u32)
-    pub fn lobes(&self, i: usize) -> js_sys::Array {
+    pub fn lobes(&self, i: usize, channel: usize) -> JsValue {
         //JsValue::from_serde(&self.lobes_center[i]).map_err(utils::report_error)
-        let c: (u32, u32) = self.lobes_center[i];
-        (vec![c.0, c.1]).into_iter().map(JsValue::from).collect()
+        if self.lobes_centers[channel].is_empty() {
+            let pt: Point2D = Point2D { x: 0, y: 0 };
+            JsValue::from_serde(&pt).unwrap()
+            // (vec![0, 0]).into_iter().map(JsValue::from).collect()
+        } else {
+            let c: (u32, u32) = self.lobes_centers[channel][i];
+            let pt: Point2D = Point2D { x: c.0, y: c.1 };
+            JsValue::from_serde(&pt).unwrap()
+            //  (vec![c.0, c.1])
+            //  .into_iter()
+            //  .map(JsValue::from)
+            //  .collect()
+        }
     }
 
     // Register and save that image.
@@ -170,21 +232,25 @@ fn encode(i: usize, mat: &DynamicImage) -> anyhow::Result<Box<[u8]>> {
     Ok(buffer.into_boxed_slice())
 }
 
-#[allow(clippy::type_complexity)]
-async fn crop_and_register(
-    args: &Args,
+async fn maxes(
+    crop: Option<Crop>,
     og_imgs: &[DynamicImage],
-) -> (Vec<(u32, u32)>, Vec<DynamicImage>) {
-    // Extract the cropped area from the images.
+    sigma: f32,
+    threshold: f32,
+    mask_ray: f32,
+) -> Option<(Vec<(u32, u32)>, Vec<DynamicImage>)> {
     let mut max_coords: Vec<(u32, u32)> = Vec::new();
-    let final_imgs: Vec<DynamicImage> = match args.crop {
-        None => og_imgs.iter().cloned().collect(),
+    let final_imgs: Vec<DynamicImage> = match crop {
+        None => {
+            log::info!("==== (No crop here)");
+            return None;
+        }
         Some(frame) => {
-            log::info!("Cropping images ...");
+            log::info!("==== Cropping images...");
             og_imgs
                 .iter()
                 .map(|im| {
-                    log::info!("Compute ray...");
+                    log::info!("==== Compute ray...");
                     let left: f32 = frame.left as f32;
                     let right: f32 = frame.right as f32;
                     let top: f32 = frame.top as f32;
@@ -195,30 +261,20 @@ async fn crop_and_register(
                     let center_y: f32 = (bottom + top) / 2.;
                     let mut ray: f32 = diag_x * diag_x + diag_y * diag_y;
                     ray = (ray / 4.0).sqrt();
-                    log::info!("Compute true crop frame.");
+                    log::info!("==== Compute true crop frame.");
                     let true_left: u32 = (center_x - ray).round() as u32;
                     let true_top: u32 = (center_y - ray).round() as u32;
                     let true_right: u32 = (center_x + ray).round() as u32;
                     let true_bottom: u32 = (center_y + ray).round() as u32;
-                    log::info!(
-                        "(l : {}, t : {}, r : {}, b : {})",
-                        true_left,
-                        true_top,
-                        true_right,
-                        true_bottom
-                    );
-                    log::info!("ray : {}", ray);
-                    log::info!("Center :({}, {})", center_x, center_y);
-                    log::info!("About to crop !");
                     let cropped = im.crop_imm(
                         true_left,
                         true_top,
                         true_right - true_left,
                         true_bottom - true_top,
                     );
-                    log::info!("Cropped OK");
-                    let image_blured = cropped.blur(args.config.sigma).to_rgb8();
-                    log::info!("Blured ok");
+                    log::info!("==== Cropped OK");
+                    let image_blured = cropped.blur(sigma).to_rgb8();
+                    log::info!("==== Blured ok");
                     let mut pixel_list: Vec<(u32, u32)> = Vec::new();
                     let only_ball = ImageBuffer::from_fn(
                         image_blured.width(),
@@ -226,11 +282,9 @@ async fn crop_and_register(
                         |x, y| {
                             let dx: f32 = (x + true_left) as f32 - center_x;
                             let dy: f32 = (y + true_top) as f32 - center_y;
-                            if (dx * dx + dy * dy)
-                                <= ray * ray * args.config.mask_ray * args.config.mask_ray
-                            {
+                            if (dx * dx + dy * dy) <= ray * ray * mask_ray * mask_ray {
                                 let px = image_blured[(x, y)];
-                                if px.to_luma()[0] as f32 > 255.0 * args.config.threshold {
+                                if px.to_luma()[0] as f32 > 255.0 * threshold {
                                     pixel_list.push((x, y));
                                     px
                                 } else {
@@ -241,7 +295,7 @@ async fn crop_and_register(
                             }
                         },
                     );
-                    log::info!("Mask applied");
+                    log::info!("==== Mask applied");
                     max_coords.push(
                         match pixel_list.iter().max_by(|a, b| {
                             let gray_1 = image_blured[(a.0, a.1)].to_luma()[0];
@@ -253,7 +307,7 @@ async fn crop_and_register(
                             }
                         }) {
                             None => {
-                                log::info!("No maximum found !!!");
+                                log::info!("/!\\/!\\        No maximum found !!!");
                                 (0, 0)
                             }
                             Some(maxi) => *maxi,
@@ -265,7 +319,67 @@ async fn crop_and_register(
                 .collect()
         }
     };
-    (max_coords, final_imgs)
+    Some((max_coords, final_imgs))
+}
+
+#[allow(clippy::type_complexity)]
+async fn crop_and_register(
+    args: &Args,
+    og_imgs: &[DynamicImage],
+) -> Vec<Option<(Vec<(u32, u32)>, Vec<DynamicImage>)>> {
+    // Extract the cropped area from the images.
+    let crop_t_l: Option<Crop> = args.crop_t_l;
+    let crop_t_r: Option<Crop> = args.crop_t_r;
+    let crop_b_l: Option<Crop> = args.crop_b_l;
+    let crop_b_r: Option<Crop> = args.crop_b_r;
+    log::info!("Top left crop ---");
+    let top_left_centers: Option<(Vec<(u32, u32)>, Vec<DynamicImage>)> = maxes(
+        crop_t_l,
+        og_imgs,
+        args.config.sigma,
+        args.config.sigma,
+        args.config.mask_ray,
+    )
+    .await;
+    log::info!("Top right crop ---");
+    let top_right_centers: Option<(Vec<(u32, u32)>, Vec<DynamicImage>)> = maxes(
+        crop_t_r,
+        og_imgs,
+        args.config.sigma,
+        args.config.sigma,
+        args.config.mask_ray,
+    )
+    .await;
+    log::info!("Bottom left crop ---");
+    let bottom_left_centers: Option<(Vec<(u32, u32)>, Vec<DynamicImage>)> = maxes(
+        crop_b_l,
+        og_imgs,
+        args.config.sigma,
+        args.config.sigma,
+        args.config.mask_ray,
+    )
+    .await;
+    log::info!("Bottom right crop ---");
+    let bottom_right_centers: Option<(Vec<(u32, u32)>, Vec<DynamicImage>)> = maxes(
+        crop_b_r,
+        og_imgs,
+        args.config.sigma,
+        args.config.sigma,
+        args.config.mask_ray,
+    )
+    .await;
+    log::info!("All computed, sending results to web page. ---");
+    // 4 channels :
+    //      0 -> top left
+    //      1 -> top right
+    //      2 -> bottom left
+    //      3 -> bottom right
+    vec![
+        top_left_centers,
+        top_right_centers,
+        bottom_left_centers,
+        bottom_right_centers,
+    ]
 }
 
 // async fn should_stop_bool(step: &str, progress: Option<u32>) -> bool {

@@ -7,7 +7,7 @@ import Canvas.Settings.Line
 import Color
 import CropForm
 import Dict exposing (Dict)
-import Element exposing (Element, alignBottom, alignLeft, alignRight, centerX, centerY, fill, height, padding, paddingXY, spacing, width)
+import Element exposing (Element, alignBottom, alignLeft, alignRight, centerX, centerY, fill, fillPortion, height, padding, paddingXY, spacing, width)
 import Element.Background
 import Element.Border
 import Element.Font
@@ -17,6 +17,7 @@ import Html exposing (Html)
 import Html.Attributes
 import Html.Events
 import Html.Events.Extra.Pointer as Pointer
+import Html.Events.Extra.Touch as Touch
 import Html.Events.Extra.Wheel as Wheel
 import Icon
 import Json.Decode exposing (Decoder, Value)
@@ -566,6 +567,194 @@ viewConfig ({ params, paramsForm, paramsInfo } as model) =
 
 viewRegistration : Model -> Element Msg
 viewRegistration ({ registeredImages, registeredViewer, registeredCenters } as model) =
+    let
+        littlechunk :
+            ({ tl : Maybe (Pivot { x : Int, y : Int })
+             , tr : Maybe (Pivot { x : Int, y : Int })
+             , bl : Maybe (Pivot { x : Int, y : Int })
+             , br : Maybe (Pivot { x : Int, y : Int })
+             }
+             -> Maybe (Pivot { x : Int, y : Int })
+            )
+            ->
+                ({ tl : Viewer
+                 , tr : Viewer
+                 , bl : Viewer
+                 , br : Viewer
+                 }
+                 -> Viewer
+                )
+            -> Quadrant
+            -> Pivot Image
+            -> Element Msg
+        littlechunk chooseSide chooseViewer quadrant images =
+            let
+                ourViewer : Viewer
+                ourViewer =
+                    registeredViewer |> chooseViewer
+
+                img =
+                    Pivot.getC images
+
+                clickButton alignment msg title icon =
+                    Element.Input.button
+                        [ padding 6
+                        , alignment
+                        , Element.Background.color (Element.rgba255 255 255 255 0.8)
+                        , Element.Font.color Style.black
+                        , Element.htmlAttribute <| Html.Attributes.style "box-shadow" "none"
+                        , Element.htmlAttribute <| Html.Attributes.title title
+                        ]
+                        { onPress = Just msg
+                        , label = icon 32
+                        }
+
+                buttonsRow =
+                    Element.row [ centerX ]
+                        [ clickButton centerX (ZoomMsg (ZoomFitReg quadrant img)) "Fit zoom to image" Icon.zoomFit
+                        , clickButton centerX (ZoomMsg (ZoomOutReg quadrant)) "Zoom out" Icon.zoomOut
+                        , clickButton centerX (ZoomMsg (ZoomInReg quadrant)) "Zoom in" Icon.zoomIn
+                        ]
+
+                ( viewerWidth, viewerHeight ) =
+                    ourViewer
+                        |> .size
+                        |> Tuple.mapBoth ((*) 0.5) ((*) 0.5)
+
+                clearCanvas : Canvas.Renderable
+                clearCanvas =
+                    Canvas.clear ( 0, 0 ) viewerWidth viewerHeight
+
+                ray : Float
+                ray =
+                    toFloat (img.width + img.height) / 4
+
+                renderedImage : Canvas.Renderable
+                renderedImage =
+                    Canvas.texture
+                        [ ourViewer |> Viewer.Canvas.transform
+                        , Canvas.Settings.Advanced.imageSmoothing False
+                        ]
+                        ( -ray, -ray )
+                        img.texture
+
+                canvasViewer : Maybe (Pivot { x : Int, y : Int }) -> Html Msg
+                canvasViewer centersList =
+                    Canvas.toHtml ( round viewerWidth, round viewerHeight )
+                        [ Html.Attributes.id "theCanvas"
+                        , Html.Attributes.style "display" "block"
+                        , Wheel.onWheel (ourViewer |> zoomWheelRegMsg quadrant)
+                        , msgOn "pointerdown" (Json.Decode.map (PointerMsg << PointerDownRaw) Json.Decode.value)
+                        , Pointer.onUp (\e -> PointerMsg (PointerUp e.pointer.offsetPos))
+                        , Html.Attributes.style "touch-action" "none"
+                        , Html.Events.preventDefaultOn "pointermove" <|
+                            Json.Decode.map (\coords -> ( PointerMsg (PointerMove coords), True )) <|
+                                Json.Decode.map2 Tuple.pair
+                                    (Json.Decode.field "clientX" Json.Decode.float)
+                                    (Json.Decode.field "clientY" Json.Decode.float)
+                        ]
+                        [ clearCanvas
+                        , renderedImage
+                        , let
+                            c : { x : Float, y : Float }
+                            c =
+                                case centersList of
+                                    Nothing ->
+                                        { x = 0.0, y = 0.0 }
+
+                                    Just centersPivot ->
+                                        Pivot.getC centersPivot
+                                            |> (\p -> { x = toFloat p.x, y = toFloat p.y })
+                          in
+                          Canvas.shapes
+                            [ Canvas.Settings.stroke (Color.rgba 1 0 0 0.7)
+                            , Canvas.Settings.Line.lineWidth
+                                (ourViewer
+                                    |> .scale
+                                    |> (*) 3
+                                )
+                            , ourViewer |> Viewer.Canvas.transform
+                            ]
+                            [ Canvas.path ( c.x - ray, 0.0 - ray )
+                                [ Canvas.lineTo ( c.x - ray, viewerHeight - ray ) ]
+                            , Canvas.path ( 0.0 - ray, c.y - ray )
+                                [ Canvas.lineTo ( viewerWidth - ray, c.y - ray ) ]
+                            ]
+                        ]
+            in
+            Element.el
+                [ Element.inFront buttonsRow
+                , Element.inFront
+                    (Element.row [ alignBottom, width fill ]
+                        [ clickButton alignLeft ClickPreviousImage "Previous image" Icon.arrowLeftCircle
+                        , clickButton alignRight ClickNextImage "Next image" Icon.arrowRightCircle
+                        ]
+                    )
+                , Element.clip
+                , Element.Border.dotted
+                , Element.Border.width 3
+                , height (fillPortion 2)
+                , width (fillPortion 2)
+                ]
+                (registeredCenters
+                    |> chooseSide
+                    |> canvasViewer
+                    |> Element.html
+                )
+
+        viewTL : Element Msg
+        viewTL =
+            case registeredImages.tl of
+                Nothing ->
+                    Element.el [ centerX, centerY, Element.Border.dotted, Element.Border.width 3, height (fillPortion 2), width (fillPortion 2) ]
+                        (Element.text "Registration not done yet")
+
+                Just images ->
+                    littlechunk .tl .tl TopLeft images
+
+        viewTR : Element Msg
+        viewTR =
+            case registeredImages.tr of
+                Nothing ->
+                    Element.el [ centerX, centerY, Element.Border.dotted, Element.Border.width 3, height (fillPortion 2), width (fillPortion 2) ]
+                        (Element.text "Registration not done yet")
+
+                Just images ->
+                    littlechunk .tr .tr TopRight images
+
+        viewBL : Element Msg
+        viewBL =
+            case registeredImages.bl of
+                Nothing ->
+                    Element.el [ centerX, centerY, Element.Border.dotted, Element.Border.width 3, height (fillPortion 2), width (fillPortion 2) ]
+                        (Element.text "Registration not done yet")
+
+                Just images ->
+                    littlechunk .bl .bl BottomLeft images
+
+        viewBR : Element Msg
+        viewBR =
+            case registeredImages.br of
+                Nothing ->
+                    Element.el [ centerX, centerY, Element.Border.dotted, Element.Border.width 3, height (fillPortion 2), width (fillPortion 2) ]
+                        (Element.text "Registration not done yet")
+
+                Just images ->
+                    littlechunk .br .br BottomRight images
+
+        bigchunk : Element Msg
+        bigchunk =
+            Element.row [ width fill, height fill ]
+                [ Element.column [ width fill, height fill ]
+                    [ viewTL
+                    , viewBL
+                    ]
+                , Element.column [ width fill, height fill ]
+                    [ viewTR
+                    , viewBR
+                    ]
+                ]
+    in
     Element.column [ width fill, height fill ]
         [ headerBar
             [ ( PageImages, False )
@@ -578,103 +767,7 @@ viewRegistration ({ registeredImages, registeredViewer, registeredCenters } as m
             Html.node "style"
                 []
                 [ Html.text ".pixelated { image-rendering: pixelated; image-rendering: crisp-edges; }" ]
-        , case registeredImages of
-            Nothing ->
-                Element.el [ centerX, centerY ]
-                    (Element.text "Registration not done yet")
-
-            Just images ->
-                let
-                    img =
-                        Pivot.getC images
-
-                    clickButton alignment msg title icon =
-                        Element.Input.button
-                            [ padding 6
-                            , alignment
-                            , Element.Background.color (Element.rgba255 255 255 255 0.8)
-                            , Element.Font.color Style.black
-                            , Element.htmlAttribute <| Html.Attributes.style "box-shadow" "none"
-                            , Element.htmlAttribute <| Html.Attributes.title title
-                            ]
-                            { onPress = Just msg
-                            , label = icon 32
-                            }
-
-                    buttonsRow =
-                        Element.row [ centerX ]
-                            [ clickButton centerX (ZoomMsg (ZoomFit img)) "Fit zoom to image" Icon.zoomFit
-                            , clickButton centerX (ZoomMsg ZoomOut) "Zoom out" Icon.zoomOut
-                            , clickButton centerX (ZoomMsg ZoomIn) "Zoom in" Icon.zoomIn
-                            ]
-
-                    ( viewerWidth, viewerHeight ) =
-                        registeredViewer.size
-
-                    clearCanvas : Canvas.Renderable
-                    clearCanvas =
-                        Canvas.clear ( 0, 0 ) viewerWidth viewerHeight
-
-                    renderedImage : Canvas.Renderable
-                    renderedImage =
-                        Canvas.texture
-                            [ Viewer.Canvas.transform registeredViewer
-                            , Canvas.Settings.Advanced.imageSmoothing False
-                            ]
-                            ( 0, 0 )
-                            img.texture
-
-                    canvasViewer =
-                        Canvas.toHtml ( round viewerWidth, round viewerHeight )
-                            [ Html.Attributes.id "theCanvas"
-                            , Html.Attributes.style "display" "block"
-                            , Wheel.onWheel (zoomWheelMsg registeredViewer)
-                            , msgOn "pointerdown" (Json.Decode.map (PointerMsg << PointerDownRaw) Json.Decode.value)
-                            , Pointer.onUp (\e -> PointerMsg (PointerUp e.pointer.offsetPos))
-                            , Html.Attributes.style "touch-action" "none"
-                            , Html.Events.preventDefaultOn "pointermove" <|
-                                Json.Decode.map (\coords -> ( PointerMsg (PointerMove coords), True )) <|
-                                    Json.Decode.map2 Tuple.pair
-                                        (Json.Decode.field "clientX" Json.Decode.float)
-                                        (Json.Decode.field "clientY" Json.Decode.float)
-                            ]
-                            [ clearCanvas
-                            , renderedImage
-                            , let
-                                c : { x : Float, y : Float }
-                                c =
-                                    case registeredCenters of
-                                        Nothing ->
-                                            { x = 0.0, y = 0.0 }
-
-                                        Just centersPivot ->
-                                            Pivot.getC centersPivot
-                                                |> (\p -> { x = toFloat p.x, y = toFloat p.y })
-                              in
-                              Canvas.shapes
-                                [ Canvas.Settings.stroke (Color.rgba 1 0 0 0.7)
-                                , Canvas.Settings.Line.lineWidth (registeredViewer.scale * 2)
-                                , Viewer.Canvas.transform registeredViewer
-                                ]
-                                [ Canvas.path ( c.x, 0.0 )
-                                    [ Canvas.lineTo ( c.x, viewerHeight ) ]
-                                , Canvas.path ( 0, c.y )
-                                    [ Canvas.lineTo ( viewerWidth, c.y ) ]
-                                ]
-                            ]
-                in
-                Element.el
-                    [ Element.inFront buttonsRow
-                    , Element.inFront
-                        (Element.row [ alignBottom, width fill ]
-                            [ clickButton alignLeft ClickPreviousImage "Previous image" Icon.arrowLeftCircle
-                            , clickButton alignRight ClickNextImage "Next image" Icon.arrowRightCircle
-                            ]
-                        )
-                    , Element.clip
-                    , height fill
-                    ]
-                    (Element.html canvasViewer)
+        , bigchunk
         ]
 
 
@@ -1306,6 +1399,19 @@ zoomWheelMsg viewer event =
 
     else
         ZoomMsg (ZoomToward coordinates)
+
+
+zoomWheelRegMsg : Quadrant -> Viewer -> Wheel.Event -> Msg
+zoomWheelRegMsg quadrant viewer event =
+    let
+        coordinates =
+            Viewer.coordinatesAt event.mouseEvent.offsetPos viewer
+    in
+    if event.deltaY > 0 then
+        ZoomMsg (ZoomAwayFromReg quadrant coordinates)
+
+    else
+        ZoomMsg (ZoomTowardReg quadrant coordinates)
 
 
 viewHome : FileDraggingState -> Element Msg

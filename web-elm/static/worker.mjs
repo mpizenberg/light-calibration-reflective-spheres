@@ -61,7 +61,10 @@ async function run(params) {
 	  mask_ray: params.maskRay,
     },
     equalize: 0.5,
-    crop: params.crop,
+    crop_t_l: params.crops.topLeft,
+    crop_t_r: params.crops.topRight,
+    crop_b_l: params.crops.bottomLeft,
+    crop_b_r: params.crops.bottomRight,
   };
 
   // Run lowrr main registration algorithm.
@@ -76,15 +79,21 @@ async function run(params) {
     await shouldStop("encoding", i);
     const id = image_ids[i];
     console.log("   Encoding ", id, " ...");
-    let croppedImgArrayU8 = SelectBall.cropped_img_file(i);
-	let lobe_center = SelectBall.lobes(i);
+    let croppedImgArrayU8_TL = SelectBall.cropped_img_file(i, 0);
+    let croppedImgArrayU8_TR = SelectBall.cropped_img_file(i, 1);
+    let croppedImgArrayU8_BL = SelectBall.cropped_img_file(i, 2);
+    let croppedImgArrayU8_BR = SelectBall.cropped_img_file(i, 3);
+	let lobes_centers_TL = SelectBall.lobes(i, 0);
+	let lobes_centers_TR = SelectBall.lobes(i, 1);
+	let lobes_centers_BL = SelectBall.lobes(i, 2);
+	let lobes_centers_BR = SelectBall.lobes(i, 3);
     // Transfer the array buffer back to main thread.
     postMessage(
       {
         type: "cropped-image",
-        data: { id, arrayBuffer: croppedImgArrayU8.buffer, imgCount, lobe_center: { x: lobe_center[0], y: lobe_center[1] } },
+        data: { id, arrayBuffers: { TL: croppedImgArrayU8_TL.buffer, TR: croppedImgArrayU8_TR.buffer, BL: croppedImgArrayU8_BL.buffer, BR: croppedImgArrayU8_BR }, imgCount, lobes_centers: { TL: lobes_centers_TL, TR: lobes_centers_TR, BL: lobes_centers_BL, BR: lobes_centers_BR } },
       },
-      [croppedImgArrayU8.buffer]
+      [croppedImgArrayU8_TL.buffer, croppedImgArrayU8_TR.buffer, croppedImgArrayU8_BL.buffer, croppedImgArrayU8_BR.buffer]
     );
   }
   await shouldStop("done", null);
