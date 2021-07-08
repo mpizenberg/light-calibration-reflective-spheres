@@ -335,11 +335,50 @@ update msg model =
                             let
                                 ( x, y ) =
                                     Viewer.coordinatesAt pointer.offsetPos model.viewer
+
+                                quadrant : Quadrant
+                                quadrant =
+                                    case ( x < toFloat img.width / 2, y < toFloat img.height / 2 ) of
+                                        ( True, True ) ->
+                                            TopLeft
+
+                                        ( True, False ) ->
+                                            BottomLeft
+
+                                        ( False, True ) ->
+                                            TopRight
+
+                                        ( False, False ) ->
+                                            BottomRight
+
+                                oldBboxesDrawn : CroppedCircles
+                                oldBboxesDrawn =
+                                    model.bboxesDrawn
+
+                                pointFrame : Maybe BBox
+                                pointFrame =
+                                    Just
+                                        { left = x
+                                        , top = y
+                                        , right = x
+                                        , bottom = y
+                                        }
                             in
                             ( { model
                                 | pointerMode = PointerDrawFromOffsetAndClient pointer.offsetPos pointer.clientPos
+                                , bboxesDrawn =
+                                    case quadrant of
+                                        TopLeft ->
+                                            { oldBboxesDrawn | topLeft = pointFrame }
 
-                                -- , bboxesDrawn = Just { left = x, top = y, right = x, bottom = y }
+                                        TopRight ->
+                                            { oldBboxesDrawn | topRight = pointFrame }
+
+                                        BottomLeft ->
+                                            { oldBboxesDrawn | bottomLeft = pointFrame }
+
+                                        BottomRight ->
+                                            { oldBboxesDrawn | bottomRight = pointFrame }
                               }
                             , capture event
                             )
