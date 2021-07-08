@@ -51,11 +51,26 @@ type alias Model =
     , paramsForm : ParametersForm
     , paramsInfo : ParametersToggleInfo
     , viewer : Viewer
-    , registeredViewer : Viewer
+    , registeredViewer :
+        { tl : Viewer
+        , tr : Viewer
+        , bl : Viewer
+        , br : Viewer
+        }
     , pointerMode : PointerMode
     , bboxesDrawn : CroppedCircles
-    , registeredImages : Maybe (Pivot Image)
-    , registeredCenters : Maybe (Pivot { x : Int, y : Int })
+    , registeredImages :
+        { tl : Maybe (Pivot Image)
+        , tr : Maybe (Pivot Image)
+        , bl : Maybe (Pivot Image)
+        , br : Maybe (Pivot Image)
+        }
+    , registeredCenters :
+        { tl : Maybe (Pivot { x : Int, y : Int })
+        , tr : Maybe (Pivot { x : Int, y : Int })
+        , bl : Maybe (Pivot { x : Int, y : Int })
+        , br : Maybe (Pivot { x : Int, y : Int })
+        }
     , logs : List { lvl : Int, content : String }
     , verbosity : Int
     , autoscroll : Bool
@@ -73,7 +88,12 @@ initialModel size =
     , paramsForm = defaultParamsForm
     , paramsInfo = defaultParamsInfo
     , viewer = Viewer.withSize ( size.width, size.height - toFloat (headerHeight + progressBarHeight) )
-    , registeredViewer = Viewer.withSize ( size.width, size.height - toFloat (headerHeight + progressBarHeight) )
+    , registeredViewer =
+        { tl = Viewer.withSize ( size.width, size.height - toFloat (headerHeight + progressBarHeight) )
+        , tr = Viewer.withSize ( size.width, size.height - toFloat (headerHeight + progressBarHeight) )
+        , bl = Viewer.withSize ( size.width, size.height - toFloat (headerHeight + progressBarHeight) )
+        , br = Viewer.withSize ( size.width, size.height - toFloat (headerHeight + progressBarHeight) )
+        }
     , pointerMode = WaitingMove
     , bboxesDrawn =
         { topLeft = Nothing
@@ -81,8 +101,18 @@ initialModel size =
         , topRight = Nothing
         , bottomRight = Nothing
         }
-    , registeredImages = Nothing
-    , registeredCenters = Nothing
+    , registeredImages =
+        { tl = Nothing
+        , tr = Nothing
+        , bl = Nothing
+        , br = Nothing
+        }
+    , registeredCenters =
+        { tl = Nothing
+        , tr = Nothing
+        , bl = Nothing
+        , br = Nothing
+        }
     , logs = []
     , verbosity = 2
     , autoscroll = True
@@ -123,13 +153,21 @@ type alias Parameters =
 encodeParams : Parameters -> Value
 encodeParams params =
     Json.Encode.object
-        [ -- ( "crop", encodeMaybe encodeCrop params.crop )
-          ( "maxVerbosity", Json.Encode.int params.maxVerbosity )
-
-        -- , ( "maxVerbosity", Json.Encode.int params.maxVerbosity )
+        [ ( "crops", encodeCrops params.crops )
+        , ( "maxVerbosity", Json.Encode.int params.maxVerbosity )
         , ( "sigma", Json.Encode.float params.sigma )
         , ( "maskRay", Json.Encode.float params.maskRay )
         , ( "threashold", Json.Encode.float params.threashold )
+        ]
+
+
+encodeCrops : CropSet -> Value
+encodeCrops crops =
+    Json.Encode.object
+        [ ( "topLeft", encodeMaybe encodeCrop crops.topLeft )
+        , ( "topRight", encodeMaybe encodeCrop crops.topRight )
+        , ( "bottomLeft", encodeMaybe encodeCrop crops.bottomLeft )
+        , ( "bottomRight", encodeMaybe encodeCrop crops.bottomRight )
         ]
 
 
@@ -297,8 +335,18 @@ type Msg
     | VerbosityChange Float
     | ScrollLogsToEnd
     | ToggleAutoScroll Bool
-    | ReceiveCroppedImages (List { id : String, img : Value })
-    | ReceiveCenters (List { x : Int, y : Int })
+    | ReceiveCroppedImages
+        { tl : List { id : String, img : Value }
+        , tr : List { id : String, img : Value }
+        , bl : List { id : String, img : Value }
+        , br : List { id : String, img : Value }
+        }
+    | ReceiveCenters
+        { tl : List { x : Int, y : Int }
+        , tr : List { x : Int, y : Int }
+        , bl : List { x : Int, y : Int }
+        , br : List { x : Int, y : Int }
+        }
     | SaveRegisteredImages
 
 
@@ -314,6 +362,11 @@ type ZoomMsg
     | ZoomOut
     | ZoomToward ( Float, Float )
     | ZoomAwayFrom ( Float, Float )
+    | ZoomInReg Quadrant
+    | ZoomOutReg Quadrant
+    | ZoomFitReg Quadrant Image
+    | ZoomTowardReg Quadrant ( Float, Float )
+    | ZoomAwayFromReg Quadrant ( Float, Float )
 
 
 type PointerMsg

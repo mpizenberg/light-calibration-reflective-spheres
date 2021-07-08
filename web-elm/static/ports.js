@@ -11,9 +11,15 @@ export function activatePorts(app, containerSize) {
   let worker = new Worker("worker.js");
 
   // Global variable holding image ids
-  let croppedImages = [];
+  let croppedImages_TL = [];
+  let croppedImages_TR = [];
+  let croppedImages_BL = [];
+  let croppedImages_BR = [];
   let registeredImages = [];
-  let centers = [];
+  let centers_TL = [];
+  let centers_TR = [];
+  let centers_BL = [];
+  let centers_BR = [];
 
   // Listen to worker messages.
   worker.onmessage = async function (event) {
@@ -25,16 +31,31 @@ export function activatePorts(app, containerSize) {
       app.ports.imageDecoded.send({ id: image.id, img });
     } else if (event.data.type == "cropped-image") {
       // Add the cropped image to the list of cropped images.
-      const { id, arrayBuffer, imgCount, lobe_center } = event.data.data;
+      const { id, arrayBuffers, imgCount, lobes_centers } = event.data.data;
       console.log("Received cropped image in main:", id);
-      const url = URL.createObjectURL(new Blob([arrayBuffer]));
-      const decodedCropped = await utils.decodeImage(url);
-      croppedImages.push({ id, img: decodedCropped });
-	  centers.push(lobe_center);
-      if (croppedImages.length == imgCount) {
+      const url_TL = URL.createObjectURL(new Blob([arrayBuffers.TL]));
+      const url_TR = URL.createObjectURL(new Blob([arrayBuffers.TR]));
+      const url_BL = URL.createObjectURL(new Blob([arrayBuffers.BL]));
+      const url_BR = URL.createObjectURL(new Blob([arrayBuffers.BR]));
+      const decodedCropped_TL = await utils.decodeImage(url_TL);
+      const decodedCropped_TR = await utils.decodeImage(url_TR);
+      const decodedCropped_BL = await utils.decodeImage(url_BL);
+      const decodedCropped_BR = await utils.decodeImage(url_BR);
+      croppedImages_TL.push({ id, img: decodedCropped_TL });
+      croppedImages_TR.push({ id, img: decodedCropped_TR });
+      croppedImages_BL.push({ id, img: decodedCropped_BL });
+      croppedImages_BR.push({ id, img: decodedCropped_BR });
+	  centers_TL.push(lobes_centers.TL);
+	  centers_TR.push(lobes_centers.TR);
+	  centers_BL.push(lobes_centers.BL);
+	  centers_BR.push(lobes_centers.BR);
+      if (croppedImages_TL.length == imgCount
+		  || croppedImages_TR.length == imgCount
+		  || croppedImages_BL == imgCount
+		  || croppedImages_BR == imgCount) {
         console.log(`Registration done, there are ${imgCount} cropped images.`);
-        app.ports.receiveCroppedImages.send(croppedImages);
-		app.ports.receiveCenters.send(centers);
+        app.ports.receiveCroppedImages.send({ tl: croppedImages_TL, tr: croppedImages_TR, bl: croppedImages_BL, br: croppedImages_BR });
+		app.ports.receiveCenters.send({ tl: centers_TL, tr: centers_TR, bl: centers_BL, br: centers_BR });
       }
     } else if (event.data.type == "registered-image") {
       // Add the registered image to the list of registered images.
@@ -101,7 +122,14 @@ export function activatePorts(app, containerSize) {
 
   // Run the registration algorithm with the provided parameters.
   app.ports.run.subscribe(async (params) => {
-    croppedImages.length = 0; // reset associated cropped images
+    croppedImages_TL.length = 0; // reset associated cropped images
+    croppedImages_TR.length = 0; // reset associated cropped images
+    croppedImages_BL.length = 0; // reset associated cropped images
+    croppedImages_BR.length = 0; // reset associated cropped images
+    centers_TL.length = 0; // reset associated centers
+    centers_TR.length = 0; // reset associated centers
+    centers_BL.length = 0; // reset associated centers
+    centers_BR.length = 0; // reset associated centers
     worker.postMessage({ type: "run", data: params });
   });
 
