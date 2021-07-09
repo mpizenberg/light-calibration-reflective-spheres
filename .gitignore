@@ -2,6 +2,12 @@
 /out
 *.png
 *.fig
+# New project additions :
+web-elm/elm-stuff/*
+web-elm/static/Elm.js
+web-elm/static/worker.js
+web-elm/static/pkg
+web-elm/static/img/*
 
 
 # The following is created by https://www.toptal.com/developers/gitignore/api/windows,osx,linux,vim
