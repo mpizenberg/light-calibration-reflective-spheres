@@ -2,6 +2,7 @@
 
 use image::DynamicImage;
 use image::{ImageBuffer, Pixel};
+use nalgebra::{Vector2, Vector3};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::cmp;
@@ -11,9 +12,12 @@ use wasm_bindgen::prelude::*;
 
 use select_ball::img::crop::Crop;
 use select_ball::img::registration;
+// use select_ball::lightsource::{intersection, light_dir};
+use crate::lightsource::{intersection, light_dir};
 
 #[macro_use]
 mod utils; // define console_log! macro
+mod lightsource; // functions to compute light source pos
 
 #[wasm_bindgen(raw_module = "../worker.mjs")]
 extern "C" {
@@ -30,6 +34,13 @@ pub struct SelectBall(Rc<RefCell<SelectBallInner>>);
 pub struct Point2D {
     pub x: u32,
     pub y: u32,
+}
+
+#[derive(Serialize)]
+pub struct Point3D {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
 }
 
 #[wasm_bindgen]
@@ -58,6 +69,14 @@ impl SelectBall {
     pub fn register_and_save(&self, i: usize) -> Result<Box<[u8]>, JsValue> {
         self.0.borrow().register_and_save(i)
     }
+
+    pub fn light_vector(&self, i: usize) -> JsValue {
+        self.0.borrow().light_vector(i)
+    }
+
+    pub fn light_pos(&self, i: usize) -> JsValue {
+        self.0.borrow().light_pos(i)
+    }
 }
 
 async fn async_run_rc(
@@ -74,6 +93,8 @@ struct SelectBallInner {
     dataset: Vec<DynamicImage>,
     crops_registered: Vec<Vec<DynamicImage>>,
     lobes_centers: Vec<Vec<(u32, u32)>>,
+    light_dirs: Vec<Vec<Vector3<f32>>>,
+    light_sources: Vec<Vec<Vector3<f32>>>,
 }
 
 #[wasm_bindgen]
@@ -103,6 +124,8 @@ impl SelectBallInner {
             //      3 -> bottom right
             crops_registered: vec![Vec::new(), Vec::new(), Vec::new(), Vec::new()],
             lobes_centers: vec![Vec::new(), Vec::new(), Vec::new(), Vec::new()],
+            light_dirs: Vec::new(),
+            light_sources: Vec::new(),
         }
     }
 
@@ -143,6 +166,8 @@ impl SelectBallInner {
         self.lobes_centers[1].clear();
         self.lobes_centers[2].clear();
         self.lobes_centers[3].clear();
+        self.light_dirs.clear();
+        self.light_sources.clear();
         let args: Args = params.into_serde().unwrap();
         utils::WasmLogger::setup(utils::verbosity_filter(args.config.verbosity));
 
@@ -151,7 +176,10 @@ impl SelectBallInner {
             self.lobes_centers = vec![Vec::new(), Vec::new(), Vec::new(), Vec::new()];
         } else {
             let mut channel = 0;
+
             for corner in crop_and_register(&args, &self.dataset).await {
+                let mut list_light_vecs: Vec<Vector3<f32>> = Vec::new();
+                let mut list_light_sources: Vec<Vector3<f32>> = Vec::new();
                 log::info!("Register channel {}", channel);
                 match corner {
                     None => {
@@ -162,11 +190,19 @@ impl SelectBallInner {
                     Some(centers_and_image_by_corner) => {
                         self.lobes_centers[channel] = centers_and_image_by_corner.0;
                         self.crops_registered[channel] = centers_and_image_by_corner.1;
+                        for (vect, pt) in centers_and_image_by_corner.2.iter() {
+                            list_light_sources.push(Vector3::new(pt.x, pt.y, pt.z));
+                            list_light_vecs.push(Vector3::new(vect.x, vect.y, vect.z));
+                        }
                     }
                 };
                 channel += 1;
+                self.light_dirs.push(list_light_vecs);
+                self.light_sources.push(list_light_sources);
             }
         }
+        self.light_dirs = transpose_records(&self.light_dirs);
+        self.light_sources = transpose_records(&self.light_sources);
         let false_vector: Vec<f32> = Vec::new();
         return JsValue::from_serde(&false_vector).map_err(utils::report_error);
     }
@@ -221,6 +257,52 @@ impl SelectBallInner {
         log::info!("Registering image {}", i);
         return encode(i, &self.dataset[i]).map_err(utils::report_error);
     }
+
+    // Send the led position in 3D
+    pub fn light_pos(&self, i: usize) -> JsValue {
+        let lobes_in_img: &Vec<Vector3<f32>> = &self.light_sources[i];
+        let rays: &Vec<Vector3<f32>> = &self.light_dirs[i];
+        let vect: Vector3<f32> = match intersection(lobes_in_img, rays) {
+            Some(v) => v,
+            None => Vector3::new(0., 0., 0.),
+        };
+
+        let pt: Point3D = Point3D {
+            x: vect.x,
+            y: vect.y,
+            z: vect.z,
+        };
+        log::info!("Light point : x : {}, y : {}, z : {}", pt.x, pt.y, pt.z);
+        JsValue::from_serde(&pt).unwrap()
+    }
+
+    // Send the mean light direction
+    pub fn light_vector(&self, i: usize) -> JsValue {
+        let rays: &Vec<Vector3<f32>> = &self.light_dirs[i];
+        let mut mean_ray: Vector3<f32> = rays.iter().sum();
+        mean_ray.normalize_mut();
+        let vect: Point3D = Point3D {
+            x: mean_ray.x,
+            y: mean_ray.y,
+            z: mean_ray.z,
+        };
+        JsValue::from_serde(&vect).unwrap()
+    }
+}
+
+/// https://stackoverflow.com/questions/29669287/how-can-i-zip-more-than-two-iterators
+/// Transposes an N-sized vector of M-sized vectors to an M-sized vector of N-sized vectors.
+/// Pretty much like matlab would with a vcat/hacat-ed matrix.
+fn transpose_records<T: Clone>(records: &Vec<Vec<T>>) -> Vec<Vec<T>> {
+    let mut transposed: Vec<Vec<T>> = vec![Vec::new(); records[0].len()];
+
+    for record in records {
+        for (index, element) in record.iter().enumerate() {
+            transposed[index].push(element.clone());
+        }
+    }
+
+    transposed
 }
 
 fn encode(i: usize, mat: &DynamicImage) -> anyhow::Result<Box<[u8]>> {
@@ -238,8 +320,9 @@ async fn maxes(
     sigma: f32,
     threshold: f32,
     mask_ray: f32,
-) -> Option<(Vec<(u32, u32)>, Vec<DynamicImage>)> {
+) -> Option<(Vec<(u32, u32)>, Vec<DynamicImage>, Vec<(Point3D, Point3D)>)> {
     let mut max_coords: Vec<(u32, u32)> = Vec::new();
+    let mut light_vec_and_source: Vec<(Point3D, Point3D)> = Vec::new();
     let final_imgs: Vec<DynamicImage> = match crop {
         None => {
             log::info!("==== (No crop here)");
@@ -259,6 +342,8 @@ async fn maxes(
                     let diag_y: f32 = bottom - top;
                     let center_x: f32 = (right + left) / 2.;
                     let center_y: f32 = (bottom + top) / 2.;
+                    let nalgebra_center: Vector2<i32> =
+                        Vector2::new((center_x - left) as i32, (center_y - top) as i32);
                     let mut ray: f32 = diag_x * diag_x + diag_y * diag_y;
                     ray = (ray / 4.0).sqrt();
                     log::info!("==== Compute true crop frame.");
@@ -266,6 +351,8 @@ async fn maxes(
                     let true_top: u32 = (center_y - ray).round() as u32;
                     let true_right: u32 = (center_x + ray).round() as u32;
                     let true_bottom: u32 = (center_y + ray).round() as u32;
+                    let nalgebra_sphere_pos: Vector2<i32> =
+                        Vector2::new(true_left as i32, true_top as i32);
                     let cropped = im.crop_imm(
                         true_left,
                         true_top,
@@ -296,71 +383,99 @@ async fn maxes(
                         },
                     );
                     log::info!("==== Mask applied");
-                    max_coords.push(
-                        match pixel_list.iter().max_by(|a, b| {
-                            let gray_1 = image_blured[(a.0, a.1)].to_luma()[0];
-                            let gray_2 = image_blured[(b.0, b.1)].to_luma()[0];
-                            if gray_1 > gray_2 {
-                                cmp::Ordering::Greater
-                            } else {
-                                cmp::Ordering::Less
-                            }
-                        }) {
-                            None => {
-                                log::info!("/!\\/!\\        No maximum found !!!");
-                                (0, 0)
-                            }
-                            Some(maxi) => *maxi,
-                        },
+                    let max_lum = match pixel_list.iter().max_by(|a, b| {
+                        let gray_1 = image_blured[(a.0, a.1)].to_luma()[0];
+                        let gray_2 = image_blured[(b.0, b.1)].to_luma()[0];
+                        if gray_1 > gray_2 {
+                            cmp::Ordering::Greater
+                        } else {
+                            cmp::Ordering::Less
+                        }
+                    }) {
+                        None => {
+                            log::info!("/!\\/!\\        No maximum found !!!");
+                            (0, 0)
+                        }
+                        Some(maxi) => *maxi,
+                    };
+                    max_coords.push(max_lum);
+                    let nalgebra_light_bulb: Vector2<i32> =
+                        Vector2::new(max_lum.0 as i32, max_lum.1 as i32);
+
+                    let result_light_dir = light_dir(
+                        ray as i32,
+                        nalgebra_light_bulb,
+                        nalgebra_center,
+                        nalgebra_sphere_pos,
                     );
-                    // only_ball[(max_coords)] = image::Rgb([255u8, 0u8, 0u8]);
+
+                    light_vec_and_source.push((
+                        Point3D {
+                            x: result_light_dir.0.x,
+                            y: result_light_dir.0.y,
+                            z: result_light_dir.0.z,
+                        },
+                        Point3D {
+                            x: result_light_dir.1.x,
+                            y: result_light_dir.1.y,
+                            z: result_light_dir.1.z,
+                        },
+                    ));
+
                     DynamicImage::ImageRgb8(only_ball)
                 })
                 .collect()
         }
     };
-    Some((max_coords, final_imgs))
+    Some((max_coords, final_imgs, light_vec_and_source))
 }
 
 #[allow(clippy::type_complexity)]
 async fn crop_and_register(
     args: &Args,
     og_imgs: &[DynamicImage],
-) -> Vec<Option<(Vec<(u32, u32)>, Vec<DynamicImage>)>> {
+) -> Vec<Option<(Vec<(u32, u32)>, Vec<DynamicImage>, Vec<(Point3D, Point3D)>)>> {
     // Extract the cropped area from the images.
     let crop_t_l: Option<Crop> = args.crop_t_l;
     let crop_t_r: Option<Crop> = args.crop_t_r;
     let crop_b_l: Option<Crop> = args.crop_b_l;
     let crop_b_r: Option<Crop> = args.crop_b_r;
     log::info!("Top left crop ---");
-    let top_left_centers: Option<(Vec<(u32, u32)>, Vec<DynamicImage>)> = maxes(
-        crop_t_l,
-        og_imgs,
-        args.config.sigma,
-        args.config.sigma,
-        args.config.mask_ray,
-    )
-    .await;
+    let top_left_centers: Option<(Vec<(u32, u32)>, Vec<DynamicImage>, Vec<(Point3D, Point3D)>)> =
+        maxes(
+            crop_t_l,
+            og_imgs,
+            args.config.sigma,
+            args.config.sigma,
+            args.config.mask_ray,
+        )
+        .await;
     log::info!("Top right crop ---");
-    let top_right_centers: Option<(Vec<(u32, u32)>, Vec<DynamicImage>)> = maxes(
-        crop_t_r,
-        og_imgs,
-        args.config.sigma,
-        args.config.sigma,
-        args.config.mask_ray,
-    )
-    .await;
+    let top_right_centers: Option<(Vec<(u32, u32)>, Vec<DynamicImage>, Vec<(Point3D, Point3D)>)> =
+        maxes(
+            crop_t_r,
+            og_imgs,
+            args.config.sigma,
+            args.config.sigma,
+            args.config.mask_ray,
+        )
+        .await;
     log::info!("Bottom left crop ---");
-    let bottom_left_centers: Option<(Vec<(u32, u32)>, Vec<DynamicImage>)> = maxes(
-        crop_b_l,
-        og_imgs,
-        args.config.sigma,
-        args.config.sigma,
-        args.config.mask_ray,
-    )
-    .await;
+    let bottom_left_centers: Option<(Vec<(u32, u32)>, Vec<DynamicImage>, Vec<(Point3D, Point3D)>)> =
+        maxes(
+            crop_b_l,
+            og_imgs,
+            args.config.sigma,
+            args.config.sigma,
+            args.config.mask_ray,
+        )
+        .await;
     log::info!("Bottom right crop ---");
-    let bottom_right_centers: Option<(Vec<(u32, u32)>, Vec<DynamicImage>)> = maxes(
+    let bottom_right_centers: Option<(
+        Vec<(u32, u32)>,
+        Vec<DynamicImage>,
+        Vec<(Point3D, Point3D)>,
+    )> = maxes(
         crop_b_r,
         og_imgs,
         args.config.sigma,

@@ -87,6 +87,11 @@ async function run(params) {
 	let lobes_centers_TR = SelectBall.lobes(i, 1);
 	let lobes_centers_BL = SelectBall.lobes(i, 2);
 	let lobes_centers_BR = SelectBall.lobes(i, 3);
+	let light_pos = SelectBall.light_pos(i);
+	let light_dir = SelectBall.light_vector(i);
+	console.log("Lighting direction :\nx: ", light_dir.x, "\ny: ", light_dir.y, "\nz: ", light_dir.z);
+	console.log("Point of lighting :\nx: ", light_pos.x, "\ny: ", light_pos.y, "\nz: ", light_pos.z);
+
     // Transfer the array buffer back to main thread.
     postMessage(
       {
