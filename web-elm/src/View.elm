@@ -1,5 +1,6 @@
 module View exposing (..)
 
+import Camera exposing (scene)
 import Canvas
 import Canvas.Settings
 import Canvas.Settings.Advanced
@@ -61,6 +62,9 @@ viewElmUI model =
 
         Logs { images } ->
             viewLogs model
+
+        Lighting lightingData ->
+            viewLighting model lightingData
 
 
 
@@ -153,7 +157,7 @@ pageHeaderElement current page =
                 }
 
         PageLogs ->
-            Element.Input.button attributesLogs
+            Element.Input.button attributes
                 { onPress =
                     if current then
                         Nothing
@@ -161,6 +165,17 @@ pageHeaderElement current page =
                     else
                         Just (NavigationMsg GoToPageLogs)
                 , label = Element.text "Logs"
+                }
+
+        PageLighting ->
+            Element.Input.button attributes
+                { onPress =
+                    if current then
+                        Nothing
+
+                    else
+                        Just (NavigationMsg GoToPageLighting)
+                , label = Element.text "Lighting"
                 }
 
 
@@ -308,6 +323,7 @@ viewLogs ({ autoscroll, verbosity, logs } as model) =
             , ( PageConfig, False )
             , ( PageRegistration, False )
             , ( PageLogs, True )
+            , ( PageLighting, False )
             ]
         , runProgressBar model
         , Element.column [ width fill, height fill, paddingXY 0 18, spacing 18 ]
@@ -455,6 +471,7 @@ viewConfig ({ params, paramsForm, paramsInfo } as model) =
             , ( PageConfig, True )
             , ( PageRegistration, False )
             , ( PageLogs, False )
+            , ( PageLighting, False )
             ]
         , runProgressBar model
         , Element.column [ width fill, height fill, Element.scrollbars ]
@@ -761,6 +778,7 @@ viewRegistration ({ registeredImages, registeredViewer, registeredCenters } as m
             , ( PageConfig, False )
             , ( PageRegistration, True )
             , ( PageLogs, False )
+            , ( PageLighting, False )
             ]
         , runProgressBar model
         , Element.html <|
@@ -768,6 +786,85 @@ viewRegistration ({ registeredImages, registeredViewer, registeredCenters } as m
                 []
                 [ Html.text ".pixelated { image-rendering: pixelated; image-rendering: crisp-edges; }" ]
         , bigchunk
+        ]
+
+
+
+-- view lighting
+
+
+viewLighting : Model -> { sources : Maybe (Pivot Point3D), dirs : Maybe (Pivot Point3D), images : Pivot Image } -> Element Msg
+viewLighting model ({ sources, dirs, images } as lightingData) =
+    let
+        source : Point3D
+        source =
+            case sources of
+                Nothing ->
+                    { x = 0.0, y = 0.0, z = 0.0 }
+
+                Just pivot ->
+                    Pivot.getC pivot
+
+        dir : Point3D
+        dir =
+            case dirs of
+                Nothing ->
+                    { x = 0.0, y = 0.0, z = 0.0 }
+
+                Just pivot ->
+                    Pivot.getC pivot
+
+        clickButton : Element.Attribute Msg -> Msg -> String -> (Float -> Element Msg) -> Element Msg
+        clickButton alignment msg title icon =
+            let
+                strokeColor =
+                    Style.lightGrey
+            in
+            Element.Input.button
+                [ padding 6
+                , alignment
+                , Element.Background.color (Element.rgba255 255 255 255 0.8)
+                , Element.Font.color strokeColor
+                , Element.htmlAttribute <| Html.Attributes.style "box-shadow" "none"
+                , Element.htmlAttribute <| Html.Attributes.title title
+                ]
+                { onPress = Just msg
+                , label = icon 32
+                }
+    in
+    Element.column
+        [ width fill
+        , height fill
+        , Element.inFront
+            (Element.row [ alignBottom, width fill ]
+                [ clickButton alignLeft ClickPreviousImage "Previous image" Icon.arrowLeftCircle
+                , clickButton alignRight ClickNextImage "Next image" Icon.arrowRightCircle
+                ]
+            )
+        ]
+        [ headerBar
+            [ ( PageImages, False )
+            , ( PageConfig, False )
+            , ( PageRegistration, False )
+            , ( PageLogs, False )
+            , ( PageLighting, True )
+            ]
+        , Element.html <|
+            scene
+        , Element.text "Source :"
+        , Element.text ("x: " ++ String.fromFloat source.x ++ " | y: " ++ String.fromFloat source.y ++ " | z: " ++ String.fromFloat source.z)
+        , Element.text "Direction :"
+        , Element.text ("x: " ++ String.fromFloat dir.x ++ " | y: " ++ String.fromFloat dir.y ++ " | z: " ++ String.fromFloat dir.z)
+        , Element.text
+            ("Sizes : "
+                ++ (case dirs of
+                        Nothing ->
+                            "Empty"
+
+                        Just p ->
+                            p |> Pivot.lengthA |> String.fromInt
+                   )
+            )
         ]
 
 
@@ -1361,6 +1458,7 @@ viewImgs ({ pointerMode, bboxesDrawn, viewer } as model) images =
             , ( PageConfig, False )
             , ( PageRegistration, False )
             , ( PageLogs, False )
+            , ( PageLighting, False )
             ]
         , runProgressBar model
         , Element.html <|

@@ -20,6 +20,8 @@ export function activatePorts(app, containerSize) {
   let centers_TR = [];
   let centers_BL = [];
   let centers_BR = [];
+  let light_positions = [];
+  let light_directions = [];
 
   // Listen to worker messages.
   worker.onmessage = async function (event) {
@@ -31,7 +33,7 @@ export function activatePorts(app, containerSize) {
       app.ports.imageDecoded.send({ id: image.id, img });
     } else if (event.data.type == "cropped-image") {
       // Add the cropped image to the list of cropped images.
-      const { id, arrayBuffers, imgCount, lobes_centers } = event.data.data;
+      const { id, arrayBuffers, imgCount, lobes_centers, light_pos, light_dir } = event.data.data;
       console.log("Received cropped image in main:", id);
       const url_TL = URL.createObjectURL(new Blob([arrayBuffers.TL]));
       const url_TR = URL.createObjectURL(new Blob([arrayBuffers.TR]));
@@ -49,6 +51,8 @@ export function activatePorts(app, containerSize) {
 	  centers_TR.push(lobes_centers.TR);
 	  centers_BL.push(lobes_centers.BL);
 	  centers_BR.push(lobes_centers.BR);
+	  light_positions.push(light_pos);
+	  light_directions.push(light_dir);
       if (croppedImages_TL.length == imgCount
 		  || croppedImages_TR.length == imgCount
 		  || croppedImages_BL == imgCount
@@ -56,6 +60,8 @@ export function activatePorts(app, containerSize) {
         console.log(`Registration done, there are ${imgCount} cropped images.`);
         app.ports.receiveCroppedImages.send({ tl: croppedImages_TL, tr: croppedImages_TR, bl: croppedImages_BL, br: croppedImages_BR });
 		app.ports.receiveCenters.send({ tl: centers_TL, tr: centers_TR, bl: centers_BL, br: centers_BR });
+		app.ports.receiveLightDirs.send(light_directions);
+		app.ports.receiveLightSources.send(light_positions);
       }
     } else if (event.data.type == "registered-image") {
       // Add the registered image to the list of registered images.

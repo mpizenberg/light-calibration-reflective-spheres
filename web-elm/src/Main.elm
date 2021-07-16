@@ -79,6 +79,16 @@ port receiveCenters :
     -> Sub msg
 
 
+port receiveLightDirs :
+    (List { x : Float, y : Float, z : Float } -> msg)
+    -> Sub msg
+
+
+port receiveLightSources :
+    (List { x : Float, y : Float, z : Float } -> msg)
+    -> Sub msg
+
+
 main : Program Device.Size Model Msg
 main =
     Browser.element
@@ -106,16 +116,19 @@ subscriptions model =
             Sub.batch [ resizes WindowResizes, log Log, imageDecoded ImageDecoded ]
 
         ViewImgs _ ->
-            Sub.batch [ resizes WindowResizes, log Log, receiveCroppedImages ReceiveCroppedImages, updateRunStep UpdateRunStep, receiveCenters ReceiveCenters, Keyboard.downs KeyDown ]
+            Sub.batch [ resizes WindowResizes, log Log, receiveCroppedImages ReceiveCroppedImages, receiveCenters ReceiveCenters, receiveLightDirs ReceiveLightDirs, receiveLightSources ReceiveLightSources, updateRunStep UpdateRunStep, Keyboard.downs KeyDown ]
 
         Config _ ->
-            Sub.batch [ resizes WindowResizes, log Log, receiveCroppedImages ReceiveCroppedImages, receiveCenters ReceiveCenters, updateRunStep UpdateRunStep ]
+            Sub.batch [ resizes WindowResizes, log Log, receiveCroppedImages ReceiveCroppedImages, receiveCenters ReceiveCenters, receiveLightDirs ReceiveLightDirs, receiveLightSources ReceiveLightSources, updateRunStep UpdateRunStep ]
 
         Registration _ ->
-            Sub.batch [ resizes WindowResizes, log Log, receiveCroppedImages ReceiveCroppedImages, receiveCenters ReceiveCenters, updateRunStep UpdateRunStep, Keyboard.downs KeyDown ]
+            Sub.batch [ resizes WindowResizes, log Log, receiveCroppedImages ReceiveCroppedImages, receiveCenters ReceiveCenters, receiveLightDirs ReceiveLightDirs, receiveLightSources ReceiveLightSources, updateRunStep UpdateRunStep, Keyboard.downs KeyDown ]
 
         Logs _ ->
-            Sub.batch [ resizes WindowResizes, log Log, receiveCroppedImages ReceiveCroppedImages, receiveCenters ReceiveCenters, updateRunStep UpdateRunStep ]
+            Sub.batch [ resizes WindowResizes, log Log, receiveCroppedImages ReceiveCroppedImages, receiveCenters ReceiveCenters, receiveLightDirs ReceiveLightDirs, receiveLightSources ReceiveLightSources, updateRunStep UpdateRunStep ]
+
+        Lighting _ ->
+            Sub.batch [ resizes WindowResizes, log Log, receiveCroppedImages ReceiveCroppedImages, receiveCenters ReceiveCenters, receiveLightDirs ReceiveLightDirs, receiveLightSources ReceiveLightSources, updateRunStep UpdateRunStep, Keyboard.downs KeyDown ]
 
 
 
@@ -292,6 +305,9 @@ update msg model =
 
         ( NavigationMsg navMsg, Logs data ) ->
             ( goTo navMsg model data, Cmd.none )
+
+        ( NavigationMsg navMsg, Lighting lightingData ) ->
+            ( goTo navMsg model { images = lightingData.images }, Cmd.none )
 
         ( ZoomMsg zoomMsg, ViewImgs _ ) ->
             ( { model | viewer = zoomViewer zoomMsg model.viewer }, Cmd.none )
@@ -834,6 +850,15 @@ update msg model =
             , Cmd.none
             )
 
+        ( ClickPreviousImage, Lighting lightingData ) ->
+            ( { model
+                | registeredLightDirs = Maybe.map goToPreviousLightDir model.registeredLightDirs
+                , registeredLightSources = Maybe.map goToPreviousLightSource model.registeredLightSources
+                , state = Lighting { images = goToPreviousImage lightingData.images, sources = Maybe.map goToPreviousLightSource lightingData.sources, dirs = Maybe.map goToPreviousLightDir lightingData.dirs }
+              }
+            , Cmd.none
+            )
+
         ( ClickNextImage, ViewImgs { images } ) ->
             ( { model | state = ViewImgs { images = goToNextImage images } }, Cmd.none )
 
@@ -841,6 +866,15 @@ update msg model =
             ( { model
                 | registeredImages = goToNextImageReg model.registeredImages
                 , registeredCenters = goToNextCenterReg model.registeredCenters
+              }
+            , Cmd.none
+            )
+
+        ( ClickNextImage, Lighting lightingData ) ->
+            ( { model
+                | registeredLightDirs = Maybe.map goToNextLightDir model.registeredLightDirs
+                , registeredLightSources = Maybe.map goToNextLightSource model.registeredLightSources
+                , state = Lighting { images = goToNextImage lightingData.images, sources = Maybe.map goToNextLightSource lightingData.sources, dirs = Maybe.map goToNextLightDir lightingData.dirs }
               }
             , Cmd.none
             )
@@ -1031,15 +1065,40 @@ update msg model =
             , Cmd.none
             )
 
-        -- case centers of
-        --     [] ->
-        --         ( model, Cmd.none )
-        --     firstCenter :: otherCenters ->
-        --         ( { model
-        --             | registeredCenters = Just (Pivot.fromCons firstCenter otherCenters)
-        --           }
-        --         , Cmd.none
-        --         )
+        ( ReceiveLightDirs directions, _ ) ->
+            let
+                registrations : Maybe (Pivot Model.Point3D)
+                registrations =
+                    case directions of
+                        [] ->
+                            Nothing
+
+                        firstDir :: otherDirs ->
+                            Just (Pivot.fromCons firstDir otherDirs)
+            in
+            ( { model
+                | registeredLightDirs = registrations
+              }
+            , Cmd.none
+            )
+
+        ( ReceiveLightSources sources, _ ) ->
+            let
+                registrations : Maybe (Pivot Model.Point3D)
+                registrations =
+                    case sources of
+                        [] ->
+                            Nothing
+
+                        firstSource :: otherSources ->
+                            Just (Pivot.fromCons firstSource otherSources)
+            in
+            ( { model
+                | registeredLightSources = registrations
+              }
+            , Cmd.none
+            )
+
         ( SaveRegisteredImages, _ ) ->
             ( model, saveRegisteredImages model.imagesCount )
 
@@ -1126,6 +1185,16 @@ goToPreviousCenterReg centers =
     }
 
 
+goToPreviousLightDir : Pivot Point3D -> Pivot Point3D
+goToPreviousLightDir directions =
+    Maybe.withDefault (Pivot.goToEnd directions) (Pivot.goL directions)
+
+
+goToPreviousLightSource : Pivot Point3D -> Pivot Point3D
+goToPreviousLightSource sources =
+    Maybe.withDefault (Pivot.goToEnd sources) (Pivot.goL sources)
+
+
 goToNextImage : Pivot Image -> Pivot Image
 goToNextImage images =
     Maybe.withDefault (Pivot.goToStart images) (Pivot.goR images)
@@ -1175,6 +1244,16 @@ goToNextCenterReg centers =
     , bl = Maybe.map goToNextCenter centers.bl
     , br = Maybe.map goToNextCenter centers.br
     }
+
+
+goToNextLightDir : Pivot Point3D -> Pivot Point3D
+goToNextLightDir directions =
+    Maybe.withDefault (Pivot.goToStart directions) (Pivot.goR directions)
+
+
+goToNextLightSource : Pivot Point3D -> Pivot Point3D
+goToNextLightSource sources =
+    Maybe.withDefault (Pivot.goToStart sources) (Pivot.goR sources)
 
 
 toBBox : Crop -> BBox
@@ -1333,6 +1412,9 @@ goTo msg model data =
 
         GoToPageLogs ->
             { model | state = Logs data }
+
+        GoToPageLighting ->
+            { model | state = Lighting { sources = model.registeredLightSources, dirs = model.registeredLightDirs, images = data.images } }
 
 
 updateParams : ParamsMsg -> Model -> Model
