@@ -71,6 +71,8 @@ type alias Model =
         , bl : Maybe (Pivot { x : Int, y : Int })
         , br : Maybe (Pivot { x : Int, y : Int })
         }
+    , registeredLightDirs : Maybe (Pivot Point3D)
+    , registeredLightSources : Maybe (Pivot Point3D)
     , logs : List { lvl : Int, content : String }
     , verbosity : Int
     , autoscroll : Bool
@@ -113,6 +115,8 @@ initialModel size =
         , bl = Nothing
         , br = Nothing
         }
+    , registeredLightDirs = Nothing
+    , registeredLightSources = Nothing
     , logs = []
     , verbosity = 2
     , autoscroll = True
@@ -287,6 +291,14 @@ type State
     | Config { images : Pivot Image }
     | Registration { images : Pivot Image }
     | Logs { images : Pivot Image }
+    | Lighting { sources : Maybe (Pivot Point3D), dirs : Maybe (Pivot Point3D), images : Pivot Image }
+
+
+type alias Point3D =
+    { x : Float
+    , y : Float
+    , z : Float
+    }
 
 
 type FileDraggingState
@@ -347,6 +359,8 @@ type Msg
         , bl : List { x : Int, y : Int }
         , br : List { x : Int, y : Int }
         }
+    | ReceiveLightDirs (List { x : Float, y : Float, z : Float })
+    | ReceiveLightSources (List { x : Float, y : Float, z : Float })
     | SaveRegisteredImages
 
 
@@ -389,6 +403,7 @@ type NavigationMsg
     | GoToPageConfig
     | GoToPageRegistration
     | GoToPageLogs
+    | GoToPageLighting
 
 
 type PageHeader
@@ -396,3 +411,4 @@ type PageHeader
     | PageConfig
     | PageRegistration
     | PageLogs
+    | PageLighting

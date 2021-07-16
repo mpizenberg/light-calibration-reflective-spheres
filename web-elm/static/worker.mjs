@@ -96,7 +96,7 @@ async function run(params) {
     postMessage(
       {
         type: "cropped-image",
-        data: { id, arrayBuffers: { TL: croppedImgArrayU8_TL.buffer, TR: croppedImgArrayU8_TR.buffer, BL: croppedImgArrayU8_BL.buffer, BR: croppedImgArrayU8_BR }, imgCount, lobes_centers: { TL: lobes_centers_TL, TR: lobes_centers_TR, BL: lobes_centers_BL, BR: lobes_centers_BR } },
+        data: { id, arrayBuffers: { TL: croppedImgArrayU8_TL.buffer, TR: croppedImgArrayU8_TR.buffer, BL: croppedImgArrayU8_BL.buffer, BR: croppedImgArrayU8_BR }, imgCount, lobes_centers: { TL: lobes_centers_TL, TR: lobes_centers_TR, BL: lobes_centers_BL, BR: lobes_centers_BR }, light_pos: light_pos, light_dir: light_dir },
       },
       [croppedImgArrayU8_TL.buffer, croppedImgArrayU8_TR.buffer, croppedImgArrayU8_BL.buffer, croppedImgArrayU8_BR.buffer]
     );

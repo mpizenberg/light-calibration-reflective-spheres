@@ -5,7 +5,6 @@ use image::{ImageBuffer, Pixel};
 use nalgebra::{Vector2, Vector3};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
-use std::cmp;
 use std::io::Cursor;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
@@ -342,8 +341,6 @@ async fn maxes(
                     let diag_y: f32 = bottom - top;
                     let center_x: f32 = (right + left) / 2.;
                     let center_y: f32 = (bottom + top) / 2.;
-                    let nalgebra_center: Vector2<i32> =
-                        Vector2::new((center_x - left) as i32, (center_y - top) as i32);
                     let mut ray: f32 = diag_x * diag_x + diag_y * diag_y;
                     ray = (ray / 4.0).sqrt();
                     log::info!("==== Compute true crop frame.");
@@ -351,6 +348,10 @@ async fn maxes(
                     let true_top: u32 = (center_y - ray).round() as u32;
                     let true_right: u32 = (center_x + ray).round() as u32;
                     let true_bottom: u32 = (center_y + ray).round() as u32;
+                    let nalgebra_center: Vector2<i32> = Vector2::new(
+                        (center_x as i32) - (true_left as i32),
+                        (center_y as i32) - (true_top as i32),
+                    );
                     let nalgebra_sphere_pos: Vector2<i32> =
                         Vector2::new(true_left as i32, true_top as i32);
                     let cropped = im.crop_imm(
@@ -362,7 +363,7 @@ async fn maxes(
                     log::info!("==== Cropped OK");
                     let image_blured = cropped.blur(sigma).to_rgb8();
                     log::info!("==== Blured ok");
-                    let mut pixel_list: Vec<(u32, u32)> = Vec::new();
+                    let mut pixel_list: Vec<((u32, u32), f32)> = Vec::new();
                     let only_ball = ImageBuffer::from_fn(
                         image_blured.width(),
                         image_blured.height(),
@@ -371,8 +372,9 @@ async fn maxes(
                             let dy: f32 = (y + true_top) as f32 - center_y;
                             if (dx * dx + dy * dy) <= ray * ray * mask_ray * mask_ray {
                                 let px = image_blured[(x, y)];
-                                if px.to_luma()[0] as f32 > 255.0 * threshold {
-                                    pixel_list.push((x, y));
+                                let intensity: f32 = px.to_luma()[0] as f32;
+                                if intensity > 255.0 * threshold {
+                                    pixel_list.push(((x, y), intensity));
                                     px
                                 } else {
                                     image::Rgb([50u8, 50u8, 50u8])
@@ -383,24 +385,22 @@ async fn maxes(
                         },
                     );
                     log::info!("==== Mask applied");
-                    let max_lum = match pixel_list.iter().max_by(|a, b| {
-                        let gray_1 = image_blured[(a.0, a.1)].to_luma()[0];
-                        let gray_2 = image_blured[(b.0, b.1)].to_luma()[0];
-                        if gray_1 > gray_2 {
-                            cmp::Ordering::Greater
-                        } else {
-                            cmp::Ordering::Less
-                        }
-                    }) {
-                        None => {
-                            log::info!("/!\\/!\\        No maximum found !!!");
-                            (0, 0)
-                        }
-                        Some(maxi) => *maxi,
-                    };
-                    max_coords.push(max_lum);
+                    let mut mean_pixel: (u32, u32) = (0, 0);
+                    let mut total_weight: f32 = 0.0;
+                    for px in &pixel_list {
+                        mean_pixel = (
+                            mean_pixel.0 + (px.0 .0 as f32 * px.1).round() as u32,
+                            mean_pixel.1 + (px.0 .1 as f32 * px.1).round() as u32,
+                        );
+                        total_weight += px.1;
+                    }
+                    mean_pixel = (
+                        (mean_pixel.0 as f32 / total_weight).round() as u32,
+                        (mean_pixel.1 as f32 / total_weight).round() as u32,
+                    );
+                    max_coords.push(mean_pixel);
                     let nalgebra_light_bulb: Vector2<i32> =
-                        Vector2::new(max_lum.0 as i32, max_lum.1 as i32);
+                        Vector2::new(mean_pixel.0 as i32, mean_pixel.1 as i32);
 
                     let result_light_dir = light_dir(
                         ray as i32,
