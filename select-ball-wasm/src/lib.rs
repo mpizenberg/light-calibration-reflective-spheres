@@ -175,6 +175,7 @@ impl SelectBallInner {
             self.lobes_centers = vec![Vec::new(), Vec::new(), Vec::new(), Vec::new()];
         } else {
             let mut channel = 0;
+            let nb_images: usize = self.dataset.len();
 
             for corner in crop_and_register(&args, &self.dataset).await {
                 let mut list_light_vecs: Vec<Vector3<f32>> = Vec::new();
@@ -199,9 +200,10 @@ impl SelectBallInner {
                 self.light_dirs.push(list_light_vecs);
                 self.light_sources.push(list_light_sources);
             }
+
+            self.light_dirs = transpose_records(&self.light_dirs, nb_images);
+            self.light_sources = transpose_records(&self.light_sources, nb_images);
         }
-        self.light_dirs = transpose_records(&self.light_dirs);
-        self.light_sources = transpose_records(&self.light_sources);
         let false_vector: Vec<f32> = Vec::new();
         return JsValue::from_serde(&false_vector).map_err(utils::report_error);
     }
@@ -292,8 +294,8 @@ impl SelectBallInner {
 /// https://stackoverflow.com/questions/29669287/how-can-i-zip-more-than-two-iterators
 /// Transposes an N-sized vector of M-sized vectors to an M-sized vector of N-sized vectors.
 /// Pretty much like matlab would with a vcat/hacat-ed matrix.
-fn transpose_records<T: Clone>(records: &Vec<Vec<T>>) -> Vec<Vec<T>> {
-    let mut transposed: Vec<Vec<T>> = vec![Vec::new(); records[0].len()];
+fn transpose_records<T: Clone>(records: &Vec<Vec<T>>, nb_images: usize) -> Vec<Vec<T>> {
+    let mut transposed: Vec<Vec<T>> = vec![Vec::new(); nb_images]; //records[0].len()];
 
     for record in records {
         for (index, element) in record.iter().enumerate() {
