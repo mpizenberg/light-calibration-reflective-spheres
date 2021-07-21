@@ -879,7 +879,7 @@ update msg model =
             )
 
         ( RunAlgorithm params, ViewImgs imgs ) ->
-            ( { model | state = Logs imgs, registeredImages = { tl = Nothing, tr = Nothing, bl = Nothing, br = Nothing }, runStep = StepNotStarted }, run (encodeParams params) )
+            ( { model | state = Logs imgs, registeredImages = { tl = Nothing, tr = Nothing, bl = Nothing, br = Nothing }, runStep = StepNotStarted, downloadedLights = False}, run (encodeParams params) )
 
         ( RunAlgorithm params, Config imgs ) ->
             ( { model | state = Logs imgs, registeredImages = { tl = Nothing, tr = Nothing, bl = Nothing, br = Nothing }, runStep = StepNotStarted }, run (encodeParams params) )
@@ -1102,11 +1102,9 @@ update msg model =
             ( model, saveRegisteredImages model.imagesCount )
 
         ( WriteLights, Lighting _ ) ->
-            ( { model | downloadedLights = True }
-            , case model.registeredLightDirs of
-                Nothing -> Cmd.none
-                Just dirs -> downloadLights dirs
-            )
+            case model.registeredLightDirs of
+                Nothing -> ( { model | downloadedLights = False }, Cmd.none )
+                Just dirs -> ( { model | downloadedLights = True }, downloadLights dirs )
 
         _ ->
             ( model, Cmd.none )
@@ -1122,8 +1120,9 @@ downloadLights dirs =
     dirs
         |> Pivot.toList
         |> List.map pointToString
-        |> String.join " | "
-        |> Dl.string "lights_orientations.lgts" "text/vectors"
+        |> String.join "\n"
+        |> String.append "x; y; z\n"
+        |> Dl.string "lights_orientations.csv" "text/csv"
 
 scrollLogsToEndCmd : Cmd Msg
 scrollLogsToEndCmd =

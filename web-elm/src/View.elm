@@ -865,7 +865,22 @@ viewLighting model ({ sources, dirs, images } as lightingData) =
                             p |> Pivot.lengthA |> String.fromInt
                    )
             )
-        , Element.Input.button [] { onPress = Just WriteLights, label = Element.text "Downloads the lights vectors" }
+        , Element.Input.button
+                [ padding 6
+                , centerX
+                , Element.htmlAttribute <| Html.Attributes.style "box-shadow" "none"
+                , Element.htmlAttribute <| Html.Attributes.title "download light vectors"
+                , if model.downloadedLights then
+                      Element.Background.color Style.green
+                  else
+                      Element.Background.color Style.errorColor
+                , Element.Border.dashed
+                , Element.Border.rounded 10
+                , Element.Border.width 3
+                ]
+            { onPress = Just WriteLights
+            , label = Icon.download 32
+            }
         ]
 
 
