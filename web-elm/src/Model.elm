@@ -8,7 +8,7 @@ import Crop exposing (..)
 import CropForm
 import Device exposing (Device)
 import Dict exposing (Dict)
-import FileValue as File exposing (File)
+import FileValue exposing (File)
 import Json.Encode exposing (Value)
 import Keyboard exposing (RawKey)
 import NumberInput exposing (..)
@@ -47,6 +47,7 @@ type alias Model =
     -- Current state of the application
     { state : State
     , device : Device
+    , downloadedLights : Bool
     , params : Parameters
     , paramsForm : ParametersForm
     , paramsInfo : ParametersToggleInfo
@@ -86,6 +87,7 @@ initialModel : Device.Size -> Model
 initialModel size =
     { state = Home Idle
     , device = Device.classify size
+    , downloadedLights = False
     , params = defaultParams
     , paramsForm = defaultParamsForm
     , paramsInfo = defaultParamsInfo
@@ -300,6 +302,15 @@ type alias Point3D =
     , z : Float
     }
 
+pointToString : Point3D -> String
+pointToString pt = "[" 
+    ++ (String.fromFloat pt.x)
+    ++ "; "
+    ++ (String.fromFloat pt.y)
+    ++ "; "
+    ++ (String.fromFloat pt.z)
+    ++ "]"
+
 
 type FileDraggingState
     = Idle
@@ -362,6 +373,7 @@ type Msg
     | ReceiveLightDirs (List { x : Float, y : Float, z : Float })
     | ReceiveLightSources (List { x : Float, y : Float, z : Float })
     | SaveRegisteredImages
+    | WriteLights
 
 
 type DragDropMsg

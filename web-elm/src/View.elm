@@ -865,6 +865,7 @@ viewLighting model ({ sources, dirs, images } as lightingData) =
                             p |> Pivot.lengthA |> String.fromInt
                    )
             )
+        , Element.Input.button [] { onPress = Just WriteLights, label = Element.text "Downloads the lights vectors" }
         ]
 
 
