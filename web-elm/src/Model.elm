@@ -303,13 +303,12 @@ type alias Point3D =
     }
 
 pointToString : Point3D -> String
-pointToString pt = "[" 
-    ++ (String.fromFloat pt.x)
+pointToString pt
+    =  (String.fromFloat pt.x)
     ++ "; "
     ++ (String.fromFloat pt.y)
     ++ "; "
     ++ (String.fromFloat pt.z)
-    ++ "]"
 
 
 type FileDraggingState
