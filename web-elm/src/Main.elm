@@ -3,15 +3,14 @@ port module Main exposing (main)
 import Browser
 import Browser.Dom
 import Canvas.Texture
-import Color
 import Crop exposing (Crop)
 import CropForm
-import Device exposing (Device)
+import Device
 import Dict
-import Element
-import FileValue as File exposing (File)
+import File.Download as Dl
+import FileValue as File
 import Html.Events.Extra.Pointer as Pointer
-import Json.Decode exposing (Decoder, Value)
+import Json.Decode exposing (Value)
 import Json.Encode exposing (Value)
 import Keyboard
 import Model exposing (..)
@@ -1102,6 +1101,13 @@ update msg model =
         ( SaveRegisteredImages, _ ) ->
             ( model, saveRegisteredImages model.imagesCount )
 
+        ( WriteLights, Lighting _ ) ->
+            ( { model | downloadedLights = True }
+            , case model.registeredLightDirs of
+                Nothing -> Cmd.none
+                Just dirs -> downloadLights dirs
+            )
+
         _ ->
             ( model, Cmd.none )
 
@@ -1109,6 +1115,15 @@ update msg model =
 
 -- Misc #######################################
 
+
+
+downloadLights : (Pivot Point3D) -> Cmd msg
+downloadLights dirs =
+    dirs
+        |> Pivot.toList
+        |> List.map pointToString
+        |> String.join " | "
+        |> Dl.string "lights_orientations.lgts" "text/vectors"
 
 scrollLogsToEndCmd : Cmd Msg
 scrollLogsToEndCmd =
