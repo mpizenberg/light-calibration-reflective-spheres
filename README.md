@@ -8,15 +8,14 @@ Here are some instruction to make everything work as well as possible.
 
 ### Compile the rust code
 
-First, you need to build the `select-ball` and `warp-crop` executables.
+First, you need to build the `select-ball` executables.
 For that, you will need [Cargo, and all the rustc stuff][cargo].
 
 ```sh
 $ cargo build --release
 ```
 
-These two executables will be located at `target/release/lowrr`
-and `target/release/warp_crop` respectively.
+These executables will be located at `target/release/select-ball`.
 
 ### Build the javascript glue code for web-assembly
 
@@ -51,7 +50,7 @@ $ ln -s <path to pkg/> <path to web-elm/static>/pkg
 ### Building the worker
 
 The worker is a thread, making the computations we need.
-It takes the form of a javascript module.
+It takes the form of a javascript module (`worker.mjs`).
 In order to get it to talk with the elm UI, we will transform it into a `.js` file with [esbuild][esbuild].
 
 ```sh
@@ -93,7 +92,7 @@ When all of this is done, you can the the results by launching the python server
 python -m http.server 8080
 ```
 
-If you need to do this again, don't worry, I have prepared two scripts that you can check quickly in `web-elm/static` : `launch.sh` and `launchElm.sh` (you might have to make some ajustments).
+If you need to do this again, don't worry, I have prepared two scripts that you can check quickly in `web-elm/static` : `launch.sh` and `launchElm.sh` (you might have to make some ajustments, depending for example on the name of the python executables, either `python` or `python3` between other choices).
 
 
 
