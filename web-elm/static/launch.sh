@@ -32,5 +32,5 @@ rm -f /home/floffy/.cache/chromium/Default/Code\ Cache/wasm/* 2> /dev/null
 echo "###"
 echo "Clear cache ok"
 echo "###"
-python -m http.server 8080
+python -m http.server 8002
 
